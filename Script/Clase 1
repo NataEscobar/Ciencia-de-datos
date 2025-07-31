@@ -1,0 +1,327 @@
+#######################################################
+# Capítulo 1 - Introducción a R
+# Basado en "R for Political Data Science", Autor: Andrés Cruz
+# Script elaborado por Natalia Escobar Váquiro
+#######################################################
+
+#######################################################
+# 1. INSTALACIÓN DE R Y RSTUDIO
+#######################################################
+# Descargar R: https://cran.r-project.org/
+# Descargar RStudio: https://www.rstudio.com/products/rstudio/download/
+
+# RECOMENDACIONES DE CONFIGURACIÓN EN RSTUDIO:
+# Antes de empezar a trabajar, es recomendable modificar dos opciones para evitar
+# confusiones con objetos viejos que puedan cargarse automáticamente:
+#
+# Ir a: Tools > Global Options > General
+# - Desmarcar la opción: "Restore .RData into workspace at startup"
+#   (Esto evita que se carguen objetos creados en sesiones anteriores al abrir RStudio)
+# - En "Save workspace to .RData on exit", seleccionar: "Never"
+#   (Esto evita que se guarde el espacio de trabajo automáticamente al cerrar RStudio)
+#
+# Estas configuraciones aseguran que cada vez que abras RStudio, comiences con
+# un entorno limpio y controlado, lo cual facilita el aprendizaje y evita errores sutiles.
+
+#######################################################
+# 2. CONSOLA: COMANDOS BÁSICOS
+#######################################################
+# Operaciones aritméticas simples
+2 + 2
+5 * 3
+(10 - 4) / 2
+
+# En la consola de RStudio, puedes usar las flechas ↑ (arriba) y ↓ (abajo) del teclado
+# para navegar por el historial de comandos que ya ejecutaste.
+# Esto es útil para reutilizar, corregir o volver a ejecutar líneas anteriores sin tener que reescribirlas.
+
+#######################################################
+# 3. SCRIPTS Y COMENTARIOS
+#######################################################
+# Esto es un comentario. No se ejecuta
+2 + 2 # Esto es una operación con un comentario al final
+
+#######################################################
+# 4. OBJETOS
+#######################################################
+# Asignar valores a objetos usando <-
+resultado <- 2 + 2
+resultado  # Imprime el contenido del objeto
+
+# Reasignación del valor
+resultado <- "democracia"
+resultado
+
+# Eliminar un objeto
+rm(resultado)
+
+# Eliminar todos los objetos del entorno
+rm(list = ls())
+
+#######################################################
+# 5. VECTORES
+#######################################################
+# Crear un vector con c()
+vector_1 <- c(15, 10, 20)
+vector_1
+
+# Crear secuencias con el operador : y combinar con otros valores
+vector_2 <- c(9, 7:10, 2, 14)
+vector_2
+
+# También podemos usar la función seq() para secuencias más controladas
+vector_3 <- seq(from = 1, to = 10, by = 2)  # 1, 3, 5, 7, 9
+vector_3
+
+# Repetir elementos usando rep()
+vector_4 <- rep(5, times = 4)  # 5, 5, 5, 5
+vector_4
+
+# Asociar nombres a los elementos de un vector
+meses <- 1:12
+meses.texto <- c("Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
+                 "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre")
+names(meses) <- meses.texto
+meses
+
+# Ejemplo: asociar ventas y filtrar meses con condición
+ventas <- sample(40:250, 12)
+meses[ventas > 105]
+
+# Alternativamente
+ventas.105 <- ventas > 105
+meses[ventas.105]
+
+# Crear un vector categórico con probabilidades definidas
+existencia <- sample(c("baja", "media", "alta"), 12, replace = TRUE, 
+                     prob = c(0.3, 0.2, 0.5))
+existencia
+
+# Filtrar por categoría
+meses[existencia == "baja"]            # Solo meses con existencia baja
+meses[existencia != "baja"]            # Todos menos los de existencia baja
+meses[existencia == "baja" | existencia == "alta"]  # baja o alta
+
+# Vectores generados por distribuciones estadísticas
+runif(5)      # Uniforme continua entre 0 y 1
+rnorm(5)      # Normal estándar (media=0, sd=1)
+rexp(5, rate = 1)  # Exponencial
+rpois(5, lambda = 2)  # Poisson con media 2
+rchisq(5, df = 3)     # Chi-cuadrado con 3 grados de libertad
+rt(5, df = 10)        # t de Student con 10 grados de libertad
+
+# Otra forma de generar secuencias
+y <- seq(1, 3, by = 0.2)
+y
+
+# Acceder a elementos por su posición
+vector_2[2]        # Segundo elemento
+vector_2[4:6]      # Cuarto, quinto y sexto
+
+# También podemos excluir posiciones con signo negativo
+vector_2[-1]       # Todos menos el primer elemento
+
+# Selección lógica
+vector_2[vector_2 > 8]   # Elementos mayores que 8
+vector_2[vector_2 %% 2 == 0]  # Elementos pares
+
+#######################################################
+# 6. FUNCIONES
+#######################################################
+# Usar funciones matemáticas
+2 + sqrt(25) - log(1)  # 2 + 5 - 0
+
+# Funciones aplicadas a vectores
+mean(vector_1)     # Media
+median(vector_1)   # Mediana
+sd(vector_1)       # Desviación estándar
+sum(vector_1)      # Suma total
+min(vector_1)      # Valor mínimo
+max(vector_1)      # Valor máximo
+log(vector_1)      # Logaritmo natural
+exp(vector_1)      # Exponencial
+length(vector_1)   # Longitud del vector
+sort(vector_1)     # Orden ascendente
+sort(vector_1, decreasing = TRUE) # Orden descendente
+
+#######################################################
+# 7. VALORES FALTANTES (NA)
+#######################################################
+# Agregar NA a un vector
+vector_1_na <- c(vector_1, NA)
+vector_1_na
+
+# Funciones fallan por defecto con NA
+mean(vector_1_na)  # Retorna NA
+
+# Ignorar NA con argumento na.rm = TRUE
+mean(vector_1_na, na.rm = TRUE)
+
+# Eliminar NA del vector con na.omit() y reemplazarlo
+vector_1_na <- na.omit(vector_1_na)
+
+# Identificar cuáles valores son NA
+is.na(vector_1_na)
+
+#######################################################
+# 8. PROYECTOS EN RSTUDIO
+#######################################################
+# RStudio permite organizar tu trabajo utilizando "proyectos",
+# lo cual es altamente recomendable para mantener orden y reproducibilidad.
+# 
+# Para crear un nuevo proyecto:
+# Ir a: File > New Project > New Directory
+# Luego, selecciona el tipo de proyecto (por ejemplo, "New Project")
+# y elige una carpeta vacía donde se guardarán todos tus archivos relacionados.
+#
+# Filosofía: “Un proyecto, una carpeta”
+# Es decir, todo lo que usas para un análisis debe estar en la misma carpeta:
+# scripts, datos, gráficos, salidas, etc.
+#
+# Ventaja: puedes usar rutas relativas en vez de rutas absolutas, por ejemplo:
+# "data/archivo.csv" en lugar de "C:/Usuarios/Natalia/Documentos/..."
+# Esto mejora la portabilidad y la colaboración.
+#
+# Además, cada vez que abras un proyecto, RStudio cargará automáticamente
+# el directorio de trabajo correcto y limpiará el entorno si lo configuraste así.
+
+
+#######################################################
+# 9. PAQUETES
+#######################################################
+# Instalar tidyverse (solo una vez)
+install.packages("tidyverse")
+
+# Cargar el paquete
+library(tidyverse)
+
+# Instalar y cargar el paquete del libro (desde GitHub)
+install.packages("remotes")      # Instalar paquete auxiliar
+library(remotes)
+
+
+#######################################################
+# 10. AYUDA Y DOCUMENTACIÓN
+#######################################################
+# Obtener ayuda de una función
+?sum
+help(sqrt)
+
+# Ver ayuda general de un paquete
+help(package = tidyverse)
+
+# Buscar ayuda de funciones específicas en la pestaña "Help" en RStudio
+
+# --------------------------------------------------------
+# 3. MATRICES
+# --------------------------------------------------------
+
+# Las matrices en R son estructuras bidimensionales (filas x columnas) donde todos los elementos deben
+# ser del mismo tipo de dato (numérico, lógico, carácter, etc.).
+# Son útiles para operaciones matemáticas como multiplicación de matrices, cálculos de álgebra lineal,
+# y organización de datos tabulares cuando no se necesitan distintos tipos de datos por columna.
+
+# Crear una matriz 3x3 con números del 1 al 9 organizados por columnas por defecto
+matriz <- matrix(1:9, nrow = 3, ncol = 3)
+
+# Acceso a elementos
+matriz[1, 2]     # Fila 1, Columna 2
+matriz[ , 1]     # Toda la primera columna
+matriz[2, ]      # Toda la segunda fila
+
+# Podemos asignar nombres a las filas y columnas de la matriz para facilitar la lectura y el acceso
+rownames(matriz) <- c("Fila1", "Fila2", "Fila3")
+colnames(matriz) <- c("Col1", "Col2", "Col3")
+
+# --------------------------------------------------------
+# 4. LISTAS
+# --------------------------------------------------------
+
+# Las listas en R son estructuras muy versátiles que permiten almacenar objetos de diferentes tipos y tamaños.
+# A diferencia de los vectores o matrices, las listas pueden contener elementos heterogéneos, incluyendo:
+# - vectores,
+# - matrices,
+# - data frames,
+# - funciones,
+# - otras listas (listas anidadas).
+# 
+# ¿Para qué sirven las listas?
+# - Para agrupar resultados complejos de funciones estadísticas o modelos.
+# - Para almacenar información variada sobre un mismo objeto o unidad de análisis.
+# - Para trabajar con resultados intermedios que combinan estructuras distintas.
+# 
+# Las listas se acceden con $nombre, [[posición]] o ["nombre"] según se necesite.
+
+# Crear una lista con distintos tipos de objetos
+mi_lista <- list(nombre = "Ana", edad = 30, notas = c(4.5, 3.8, 5))
+
+# Acceso a los elementos
+mi_lista$nombre
+mi_lista[[2]]
+mi_lista[["notas"]]
+
+# Ver estructura
+str(mi_lista)
+
+# --------------------------------------------------------
+# 5. DATA FRAMES
+# --------------------------------------------------------
+
+# Los data frames son estructuras bidimensionales en R similares a tablas.
+# Cada columna representa una variable y cada fila una observación.
+# A diferencia de las matrices, en un data frame cada columna puede tener un tipo de dato distinto.
+# Esta flexibilidad los convierte en una de las estructuras más usadas para análisis de datos.
+# 
+# ¿Para qué sirven los data frames?
+# - Para almacenar datasets reales como encuestas, censos, resultados experimentales, etc.
+# - Permiten manipular, filtrar, agrupar y resumir datos fácilmente.
+# - Son compatibles con casi todos los paquetes del ecosistema R (especialmente tidyverse).
+# - Se pueden importar desde archivos como .csv, .xlsx, .sav, etc.
+# 
+# Se accede a sus columnas con el operador $ (ej. data$columna), y permite aplicar funciones por columnas o filas.
+
+# Crear un data frame manualmente
+estudiantes <- data.frame(
+  nombre = c("Ana", "Luis", "Pedro"),
+  edad = c(22, 24, 21),
+  nota1 = c(4.5, 3.8, 4.0),
+  nota2 = c(4.0, 3.5, 4.2)
+)
+
+# Calcular promedio por estudiante
+estudiantes$promedio <- rowMeans(estudiantes[, c("nota1", "nota2")])
+
+# Filtrar estudiantes con promedio mayor a 4
+estudiantes[estudiantes$promedio > 4, ]
+
+# Inspección
+str(estudiantes)
+summary(estudiantes)
+
+# --------------------------------------------------------
+# 6. CONVERSIÓN ENTRE ESTRUCTURAS
+# --------------------------------------------------------
+
+# Matriz a data frame
+mat_df <- as.data.frame(matriz)
+
+# Lista a data frame (si todos los elementos tienen la misma longitud)
+lista_simple <- list(a = 1:3, b = 4:6)
+lista_df <- as.data.frame(lista_simple)
+
+# Data frame a matriz
+df_matriz <- as.matrix(estudiantes[, c("nota1", "nota2")])
+
+# --------------------------------------------------------
+# 7. BUENAS PRÁCTICAS
+# --------------------------------------------------------
+
+# Ver estructura siempre con str()
+str(lista_df)
+
+# Nombrar de forma clara los objetos
+# Evitar usar nombres como "data" o "df1"
+
+# Comentar cada paso del análisis
+# Usar "#" para anotar lo que estamos haciendo
+
