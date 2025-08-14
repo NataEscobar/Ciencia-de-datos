@@ -213,7 +213,7 @@ help(package = tidyverse)
 # Buscar ayuda de funciones específicas en la pestaña "Help" en RStudio
 
 # --------------------------------------------------------
-# 3. MATRICES
+# Objetos: Matrices
 # --------------------------------------------------------
 
 # Las matrices en R son estructuras bidimensionales (filas x columnas) donde todos los elementos deben
@@ -234,7 +234,7 @@ rownames(matriz) <- c("Fila1", "Fila2", "Fila3")
 colnames(matriz) <- c("Col1", "Col2", "Col3")
 
 # --------------------------------------------------------
-# 4. LISTAS
+# Objetos: LISTAS
 # --------------------------------------------------------
 
 # Las listas en R son estructuras muy versátiles que permiten almacenar objetos de diferentes tipos y tamaños.
@@ -264,7 +264,7 @@ mi_lista[["notas"]]
 str(mi_lista)
 
 # --------------------------------------------------------
-# 5. DATA FRAMES
+# Objetos: DATA FRAMES
 # --------------------------------------------------------
 
 # Los data frames son estructuras bidimensionales en R similares a tablas.
@@ -299,7 +299,7 @@ str(estudiantes)
 summary(estudiantes)
 
 # --------------------------------------------------------
-# 6. CONVERSIÓN ENTRE ESTRUCTURAS
+# CONVERSIÓN ENTRE ESTRUCTURAS
 # --------------------------------------------------------
 
 # Matriz a data frame
