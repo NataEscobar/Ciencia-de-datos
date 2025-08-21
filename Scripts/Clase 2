@@ -1,0 +1,180 @@
+###############################################################################
+# Clase 2
+# En este script creamos un conjunto de datos ficticio de estudiantes de
+# ciencias sociales para ilustrar:
+#  1. Generación y exploración de datos
+#  2. Visualización básica
+#  3. Medidas de tendencia central
+#  4. Medidas de dispersión
+#  5. Asimetría y curtosis
+#  6. Resúmenes rápidos
+###############################################################################
+
+# 0. —— Preparación del entorno —— ------------------------------------------
+
+# 0.1 (Opcional) Ajusta tu directorio de trabajo:
+# setwd("/ruta/a/tu/proyecto/Capitulo5_estudiantes")
+
+# 0.2 Instalar (si falta) y cargar los paquetes necesarios
+if (!require(lsr))     install.packages("lsr",     dependencies = TRUE)
+if (!require(psych))   install.packages("psych",   dependencies = TRUE)
+library(lsr)    # Funciones como modeOf(), aad()
+library(psych)  # Funciones como describe(), skew(), kurtosi()
+
+# 1. —— Generación y exploración de datos sintéticos —— ----------------------
+
+# 1.1 Fijamos semilla para reproducibilidad
+set.seed(2025)
+
+# 1.2 Creamos un vector numérico de notas de examen (0–100)
+#     Simulamos 200 estudiantes, con media ~75 y sd ~12
+nota_examen <- round(rnorm(200, mean = 75, sd = 12), 1)
+#     Aseguramos que las notas queden entre 0 y 100
+nota_examen <- pmax(pmin(nota_examen, 100), 0)
+
+# 1.3 Creamos un factor de carreras (4 programas de ciencias sociales)
+carrera <- factor(
+  sample(c("Sociología", "Antropología", "Ciencia Política", "Psicología"),
+         size    = 200,
+         replace = TRUE,
+         prob    = c(0.25, 0.25, 0.25, 0.25))
+)
+
+# 1.4 Unimos en un data.frame para facilitar operaciones posteriores
+datos_estudiantes <- data.frame(
+  nota_examen = nota_examen,
+  carrera     = carrera
+)
+
+# 1.5 Exploración inicial
+dim(datos_estudiantes)        # 200 filas, 2 columnas
+str(datos_estudiantes)        # clases y estructura de cada variable
+head(datos_estudiantes, 10)   # primeras 10 observaciones
+summary(datos_estudiantes)    # resumen rápido de notas y conteo de carreras
+
+# 2. —— Visualización básica —— ----------------------------------------------
+
+# 2.1 Histograma de las notas de examen
+hist(datos_estudiantes$nota_examen,
+     breaks = 15,
+     col    = "lightblue",
+     main   = "Histograma de Notas de Examen",
+     xlab   = "Nota (0–100)",
+     ylab   = "Frecuencia")
+
+# 2.2 Gráfico de barras de estudiantes por carrera
+barplot(table(datos_estudiantes$carrera),
+        main  = "Número de Estudiantes por Carrera",
+        xlab  = "Carrera",
+        ylab  = "Cantidad de Estudiantes",
+        las   = 2,       # etiquetas verticales
+        ylim  = c(0, max(table(datos_estudiantes$carrera)) + 5))
+
+# 3. —— Medidas de tendencia central —— --------------------------------------
+
+# 3.1 Media aritmética de las notas
+media_nota <- mean(datos_estudiantes$nota_examen)
+print(paste("Media de nota:", round(media_nota, 2)))
+
+# 3.2 Mediana de las notas
+mediana_nota <- median(datos_estudiantes$nota_examen)
+print(paste("Mediana de nota:", mediana_nota))
+
+# 3.3 Moda de la carrera (nivel más frecuente)
+moda_carrera <- modeOf(datos_estudiantes$carrera)
+print(paste("Carrera más común:", moda_carrera))
+
+# 3.4 Media recortada (trim = 0.10 descarta 10% de valores extremos)
+media_trim10 <- mean(datos_estudiantes$nota_examen, trim = 0.10)
+print(paste("Media recortada (10%):", round(media_trim10, 2)))
+
+# 4. —— Medidas de dispersión —— ---------------------------------------------
+
+# 4.1 Rango (mínimo y máximo)
+rango_nota <- range(datos_estudiantes$nota_examen)
+print(paste("Rango de notas:", paste(rango_nota, collapse = " – ")))
+
+# 4.2 Rango intercuartílico (IQR)
+iqr_nota <- IQR(datos_estudiantes$nota_examen)
+print(paste("IQR de notas:", iqr_nota))
+
+# 4.3 Desviación media absoluta (AAD)
+aad_nota <- aad(datos_estudiantes$nota_examen)
+print(paste("AAD de notas:", round(aad_nota, 2)))
+
+# 4.4 Varianza (insesgada, divide entre N−1)
+var_nota <- var(datos_estudiantes$nota_examen)
+print(paste("Varianza de notas:", round(var_nota, 2)))
+
+# 4.5 Desviación estándar
+sd_nota <- sd(datos_estudiantes$nota_examen)
+print(paste("Desviación estándar:", round(sd_nota, 2)))
+
+# 4.6 Mediana de desviaciones absolutas (MAD; constant = 1 para raw MAD)
+mad_nota <- mad(datos_estudiantes$nota_examen, constant = 1)
+print(paste("MAD de notas:", round(mad_nota, 2)))
+
+# 5. —— Asimetría (Skew) y Curtosis (Kurtosis) —— ----------------------------
+
+# 5.1 Asimetría: >0 cola derecha alargada, <0 cola izquierda
+skewness_nota <- skew(datos_estudiantes$nota_examen)
+print(paste("Asimetría:", round(skewness_nota, 2)))
+
+# 5.2 Curtosis: >0 puntiagudo, <0 aplanado
+kurtosis_nota <- kurtosi(datos_estudiantes$nota_examen)
+print(paste("Curtosis:", round(kurtosis_nota, 2)))
+
+# 6. —— Resúmenes rápidos —— -------------------------------------------------
+
+# 6.1 Resumen extendido con psych::describe()
+print(describe(datos_estudiantes$nota_examen))
+
+# 6.2 Frecuencias absolutas de la variable categórica carrera
+print(table(datos_estudiantes$carrera))
+
+# 6.3 Proporciones de estudiantes por carrera
+print(round(prop.table(table(datos_estudiantes$carrera)) * 100, 1))
+
+###############################################################################
+# Continuación: Estadísticas descriptivas avanzadas (solo tablas)
+# Partiendo de tu data.frame `datos_estudiantes` con:
+#   - nota_examen (numérico)
+#   - carrera     (factor)
+###############################################################################
+
+# 1. —— Cargar librerías —— --------------------------------------------------
+library(dplyr)    # para manipulación de datos
+library(psych)    # describe(), describeBy(), skew(), kurtosi()
+library(lsr)      # modeOf(), aad()
+
+# 2. —— Descripción global de la nota de examen —— ----------------------------
+describe(datos_estudiantes$nota_examen)
+
+
+# 3. —— Frecuencias y proporciones de la variable categórica carrera ——--------
+freq_carrera <-table(datos_estudiantes$carrera)
+prop.table(freq_carrera)       # proporción absoluta
+prop.table(freq_carrera) * 100  
+
+# 4. —— Estadísticas descriptivas por carrera —— -----------------------------
+resumen_por_carrera <- datos_estudiantes %>%
+  group_by(carrera) %>%
+  summarise(
+    n         = n(),                                 # conteo
+    media     = mean(nota_examen),                  # media
+    mediana   = median(nota_examen),                # mediana
+    sd        = sd(nota_examen),                    # desviación estándar
+    IQR       = IQR(nota_examen),                   # rango intercuartílico
+    skew      = skew(nota_examen),                  # asimetría
+    kurtosis  = kurtosi(nota_examen)                # curtosis
+  )
+
+resumen_por_carrera
+
+# 5. —— Descripción detallada de notas por carrera (psych::describeBy) ——----
+desc_by_carrera <- describeBy(
+  datos_estudiantes$nota_examen,
+  group = datos_estudiantes$carrera,
+  mat   = TRUE                                   # devuelve dataframe
+)
+desc_by_carrera
