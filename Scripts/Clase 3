@@ -1,0 +1,461 @@
+# ==================================================
+# ESTANDARIZACIÓN Y NORMALIZACIÓN
+# ==================================================
+# Supongamos que tenemos dos variables:
+# - Notas de estudiantes (escala 0 a 100)
+# - Altura de los mismos estudiantes (en cm)
+# El objetivo es:
+#   1. Estándarizar y normalizar los datos
+#   2. Comparar resultados
+#   3. Visualizar la relación entre ambas variables
+# ==================================================
+
+# ------------------------------
+# 1. Crear los datos
+# ------------------------------
+notas  <- c(50, 60, 70, 80, 100)    # Notas de 5 estudiantes
+altura <- c(150, 160, 165, 170, 180) # Alturas de los mismos estudiantes
+
+# ------------------------------
+# 2. ESTANDARIZACIÓN (Z-scores)
+# ------------------------------
+# Fórmula: z = (x - media) / desviación estándar
+# Paso 1: calcular la media y la desviación estándar de las notas
+media_notas <- mean(notas)
+desv_notas  <- sd(notas)
+
+# Paso 2: aplicar la fórmula
+z_notas <- (notas - media_notas) / desv_notas
+
+# Hacemos lo mismo para la altura
+z_altura <- (altura - mean(altura)) / sd(altura)
+
+# Verificación: después de estandarizar,
+# la media debería ser ~0 y la desviación estándar ~1
+mean(z_notas)  # ~0
+sd(z_notas)    # ~1
+
+# ------------------------------
+# 3. NORMALIZACIÓN (min-max)
+# ------------------------------
+# Fórmula: x' = (x - min) / (max - min)
+# Esto reescala los datos a un rango entre 0 y 1
+
+# Normalización de notas
+notas_norm <- (notas - min(notas)) / (max(notas) - min(notas))
+
+# Normalización de altura
+altura_norm <- (altura - min(altura)) / (max(altura) - min(altura))
+
+# ------------------------------
+# 4. Tablas comparativas
+# ------------------------------
+# Creamos un data frame para ver resultados en conjunto
+tabla <- data.frame(
+  Estudiante = LETTERS[1:5],
+  Nota = notas,
+  Z_Notas = round(z_notas, 2),
+  Nota_Normalizada = round(notas_norm, 2),
+  Altura = altura,
+  Z_Altura = round(z_altura, 2),
+  Altura_Normalizada = round(altura_norm, 2)
+)
+
+tabla
+
+# ------------------------------
+# 5. Visualización de la relación
+# ------------------------------
+library(ggplot2)
+
+df <- data.frame(
+  Estudiante = LETTERS[1:5],
+  Nota = notas,
+  Altura = altura,
+  Z_Notas = z_notas,
+  Z_Altura = z_altura
+)
+
+# Gráfico de dispersión en escala original
+ggplot(df, aes(x = Altura, y = Nota)) +
+  geom_point(size = 3, color = "blue") + # puntos originales
+  geom_smooth(method = "lm", se = FALSE, color = "red") + # línea de ajuste lineal
+  labs(title = "Dispersión: Altura vs Nota (escala original)",
+       x = "Altura (cm)",
+       y = "Nota (0–100)") +
+  theme_minimal()
+
+# Gráfico de dispersión en escala estandarizada
+ggplot(df, aes(x = Z_Altura, y = Z_Notas)) +
+  geom_point(size = 3, color = "darkgreen") + # puntos estandarizados
+  geom_smooth(method = "lm", se = FALSE, color = "red") + # línea de ajuste lineal
+  labs(title = "Dispersión: Altura vs Nota (Z-scores)",
+       x = "Altura estandarizada",
+       y = "Nota estandarizada") +
+  theme_minimal()
+
+# ==================================================
+# INTERPRETACIÓN:
+# - La estandarización convierte las variables a una escala común
+#   con media = 0 y desviación estándar = 1.
+#   Sirve para comparar variables en diferentes unidades.
+#
+# - La normalización reescala los datos al rango 0–1.
+#   Sirve para mostrar resultados en un intervalo claro y fijo.
+#
+# - Aunque cambie la escala (original, Z, o normalizada),
+#   la correlación entre altura y notas se mantiene igual,
+#   porque la relación entre los datos no cambia.
+# ==================================================
+
+
+# ==================================================
+# COVARIANZA Y CORRELACIÓN DE PEARSON
+# ==================================================
+# Basado en la explicación del documento:
+# - Primero entendemos la COVARIANZA
+# - Luego vemos cómo se convierte en CORRELACIÓN
+# - Finalmente hacemos un ejemplo numérico y gráfico
+# ==================================================
+
+# ------------------------------
+# 1. Crear un conjunto de datos
+# ------------------------------
+# Supongamos que medimos el número de horas de estudio (X)
+# y la nota final en un examen (Y) para 6 estudiantes
+
+horas <- c(2, 4, 5, 6, 8, 9)   # horas de estudio
+nota  <- c(50, 55, 65, 70, 80, 90) # nota en examen
+
+# Creamos un data frame para visualizar mejor
+df <- data.frame(Horas = horas, Nota = nota)
+df
+
+# ------------------------------
+# 2. Covarianza
+# ------------------------------
+# Fórmula: Cov(X,Y) = (1/(n-1)) * Σ (X_i - mean(X)) * (Y_i - mean(Y))
+# En palabras: cuánto varían juntas dos variables respecto a su media
+
+covarianza <- cov(horas, nota)
+covarianza
+# Interpretación:
+# - Si es positiva: cuando X aumenta, Y tiende a aumentar
+# - Si es negativa: cuando X aumenta, Y tiende a disminuir
+# - Si es ≈ 0: no hay relación lineal clara
+# El problema: la covarianza depende de las unidades (ej: horas*nota)
+
+# ------------------------------
+# 3. Correlación de Pearson
+# ------------------------------
+# Fórmula: r = Cov(X,Y) / (sd(X) * sd(Y))
+# Es decir, la covarianza estandarizada por las desviaciones de X e Y
+
+correlacion <- cor(horas, nota, method = "pearson")
+correlacion
+# Ahora r está en [-1, 1], lo que facilita la interpretación:
+# -1 = relación lineal negativa perfecta
+#  0 = sin relación lineal
+# +1 = relación lineal positiva perfecta
+
+# ------------------------------
+# 4. Cálculo manual paso a paso
+# ------------------------------
+# Centrar los datos (restar la media)
+x_c <- horas - mean(horas)
+y_c <- nota - mean(nota)
+
+# Covarianza manual
+cov_manual <- sum(x_c * y_c) / (length(horas) - 1)
+
+# Desviaciones estándar
+s_x <- sd(horas)
+s_y <- sd(nota)
+
+# Correlación manual
+r_manual <- cov_manual / (s_x * s_y)
+
+cov_manual
+s_x
+s_y
+r_manual  # debe coincidir con cor(horas, nota)
+
+# ------------------------------
+# 5. Relación con estandarización
+# ------------------------------
+# Si convertimos cada variable en Z-scores:
+z_x <- (horas - mean(horas)) / sd(horas)
+z_y <- (nota  - mean(nota))  / sd(nota)
+
+# Entonces la correlación es el promedio del producto de los Z
+r_desde_z <- sum(z_x * z_y) / (length(horas) - 1)
+r_desde_z
+
+# ------------------------------
+# 6. Visualización
+# ------------------------------
+library(ggplot2)
+
+ggplot(df, aes(x = Horas, y = Nota)) +
+  geom_point(size = 3, color = "blue") +             # puntos
+  geom_smooth(method = "lm", se = FALSE, color = "red") + # línea de regresión
+  labs(title = paste("Horas vs Nota (r =", round(correlacion, 2), ")"),
+       x = "Horas de estudio",
+       y = "Nota en el examen") +
+  theme_minimal()
+
+# ==================================================
+# INTERPRETACIÓN:
+# - La covarianza nos dice si las variables tienden a variar juntas,
+#   pero no es fácil de interpretar porque depende de las unidades.
+# - La correlación de Pearson estandariza la covarianza, llevándola
+#   a un rango [-1,1], lo que facilita la comparación.
+# - En este ejemplo r ≈ 0.98, lo que indica una relación lineal
+#   muy fuerte y positiva entre horas de estudio y nota.
+# ==================================================
+
+
+# =========================================================
+# ÍNDICES SIMPLES: Normalización (min–max) y Estandarización (Z)
+# Caso: valoración de un restaurante con 5 preguntas
+#   - 0/1: 0 = No, 1 = Sí
+#   - Likert 1–5: 1 = muy en desacuerdo, 5 = muy de acuerdo
+#   - "espera_larga" (1–5) es NEGATIVA (más = peor) → la invertimos
+# =========================================================
+
+# -----------------------------
+# PASO 0. Datos de ejemplo (6 personas)
+# -----------------------------
+# Columnas:
+#  - comida_buena (0/1)
+#  - servicio_bueno (0/1)
+#  - precio_justo (0/1)
+#  - ambiente_agradable (1–5)  [positivo]
+#  - espera_larga (1–5)        [negativo → invertiremos]
+
+df <- data.frame(
+  persona            = paste0("P", 1:6),
+  comida_buena       = c(1, 1, 0, 1, 0, 1),
+  servicio_bueno     = c(0, 1, 0, 1, 1, 1),
+  precio_justo       = c(1, 1, 0, 0, 0, 1),
+  ambiente_agradable = c(4, 5, 2, 3, 4, 5),
+  espera_larga       = c(4, 2, 5, 3, 2, 1)  # mayor = peor
+)
+
+df
+
+# -----------------------------
+# PASO 1. Alinear los ítems: recodificar el negativo
+# -----------------------------
+# En este caso, "espera_larga" mide algo negativo (esperar más es peor).
+# Para invertir su sentido usamos la fórmula: nuevo_valor = (máximo + mínimo + 1) - valor.
+# Como la escala es 1–5, equivale a: 6 - x. De esta forma:
+#   - Un 1 (muy poco tiempo de espera) se transforma en 5 (muy positivo)
+#   - Un 5 (mucha espera) se transforma en 1 (muy negativo)
+# Así, después de la recodificación, valores altos en todos los ítems significan “mejor”.
+df$espera_larga_rc <- 6 - df$espera_larga
+
+# Seleccionamos los ítems coherentes (todos positivos ya)
+items <- c("comida_buena", "servicio_bueno", "precio_justo",
+           "ambiente_agradable", "espera_larga_rc")
+
+
+# -----------------------------
+# PASO 2. Índice por NORMALIZACIÓN (min–max)
+# -----------------------------
+# Idea: llevar cada ítem a un rango común 0–1:
+# x' = (x - min) / (max - min)
+# Ventaja: fácil de interpretar y comunicar (0 = peor observado, 1 = mejor observado)
+# La siguiente función recibe un vector de valores (respuestas a un ítem) y:
+# 1. Calcula su mínimo (a) y máximo (b).
+# 2. Si todos los valores son iguales (b - a = 0), no hay forma de escalar, 
+#    entonces devuelve 0.5 para todos como valor neutro.
+# 3. Si hay variación, aplica la fórmula min–max: (x - a) / (b - a), 
+#    que transforma cualquier número al rango [0,1].
+#    - El valor más bajo se convierte en 0.
+#    - El valor más alto se convierte en 1.
+#    - Los demás quedan proporcionalmente entre 0 y 1.
+
+minmax <- function(x) {
+  a <- min(x, na.rm = TRUE)  # valor mínimo del ítem
+  b <- max(x, na.rm = TRUE)  # valor máximo del ítem
+  if (b - a == 0) return(rep(0.5, length(x)))  # si no hay variación, usar 0.5 neutro
+  (x - a) / (b - a)  # fórmula min–max
+}
+
+# Aplicamos min–max a cada ítem y calculamos el índice como promedio simple
+# Aquí usamos lapply para aplicar la función minmax a cada columna seleccionada de df.
+# df[, items] extrae las columnas que definimos como nuestros ítems.
+# lapply(df[, items], minmax) aplica la función minmax a cada columna por separado, 
+# devolviendo una lista con los resultados normalizados.
+# as.data.frame(...) convierte esa lista en un nuevo data frame llamado df_minmax.
+df_minmax <- as.data.frame(lapply(df[, items], minmax))
+
+# Luego usamos paste0(items, "_n") para renombrar las columnas y dejar claro 
+# que son las versiones normalizadas de los ítems originales.
+names(df_minmax) <- paste0(items, "_n")
+
+# Índice normalizado (promedio de los 5 ítems normalizados)
+df$indice_minmax <- rowMeans(df_minmax, na.rm = TRUE)
+
+# -----------------------------
+# PASO 3. Índice por ESTANDARIZACIÓN (Z-scores)
+# -----------------------------
+# Idea: medir cuánto se aleja cada valor del promedio en "desviaciones estándar":
+# Fórmula general: z = (x - media) / sd
+# Esto significa:
+#  - Restamos la media al valor observado → medimos la distancia respecto al promedio.
+#  - Dividimos esa distancia por la desviación estándar → expresamos la distancia en
+#    unidades comparables (cuántas desviaciones estándar). 
+#  Ejemplo: si la media es 50, la sd es 10, y x = 70:
+#           z = (70 - 50) / 10 = 2. Eso quiere decir que el valor está 2 desviaciones
+#           por encima del promedio.
+# Ventaja: el índice queda relativo a la media del grupo, útil para comparaciones 
+# estadísticas y para combinar variables de distinta escala.
+
+# La función zscore recibe un vector de valores y lo transforma en puntajes estandarizados (Z).
+# Línea por línea:
+#   s <- sd(x, na.rm = TRUE) → calcula la desviación estándar del vector, ignorando NA.
+#   if (is.na(s) || s == 0) return(rep(0, length(x))) → si no hay variación (sd=0) o el cálculo da NA,
+#       devuelve un vector de ceros del mismo largo, porque todos los valores son iguales.
+#   (x - mean(x, na.rm = TRUE)) / s → fórmula de estandarización: a cada valor le resta la media 
+#       y divide por la desviación estándar, convirtiendo todo a Z-scores.
+zscore <- function(x) {
+  s <- sd(x, na.rm = TRUE)
+  if (is.na(s) || s == 0) return(rep(0, length(x)))  # sin variación → todo 0
+  (x - mean(x, na.rm = TRUE)) / s
+}
+
+# Aquí aplicamos la función zscore a cada columna de ítems del data frame.
+# Paso a paso:
+#   df[, items] → selecciona solo las columnas de interés (nuestros ítems positivos).
+#   lapply(..., zscore) → aplica la función zscore a cada columna, devolviendo una lista con cada ítem convertido a Z-scores.
+#   as.data.frame(...) → convierte esa lista en un nuevo data frame llamado df_z.
+df_z <- as.data.frame(lapply(df[, items], zscore))
+
+# Luego renombramos las columnas para que quede claro que ahora son versiones estandarizadas.
+# paste0(items, "_z") concatena el nombre original del ítem con el sufijo "_z".
+names(df_z) <- paste0(items, "_z")
+
+# Índice estandarizado (promedio de los 5 Z-scores)
+df$indice_z <- rowMeans(df_z, na.rm = TRUE)
+
+# (Opcional) Reescalar el índice Z a 0–1 para comunicarlo más fácil
+# Esta función to_01 toma un vector de valores (en este caso el índice Z) y lo reescala
+# al rango 0–1 con la fórmula min–max: (x - min) / (max - min).
+# Línea por línea:
+#   a <- min(x, na.rm = TRUE) → obtiene el valor mínimo del vector.
+#   b <- max(x, na.rm = TRUE) → obtiene el valor máximo del vector.
+#   if (b - a == 0) return(rep(0.5, length(x))) → si todos los valores son iguales, no se puede
+#       escalar, entonces asigna 0.5 (punto medio) a todos para evitar división por cero.
+#   (x - a) / (b - a) → aplica la fórmula min–max y devuelve un valor entre 0 y 1.
+# Diferencia con la normalización original: aquí reescalamos el índice ya estandarizado (Z),
+# mientras que en la normalización inicial se aplicaba directamente a cada ítem.
+# Es decir, primero usamos Z para medir distancias respecto al promedio, y luego min–max
+# para reexpresarlo en una escala comunicativa de 0–1.
+to_01 <- function(x) {
+  a <- min(x, na.rm = TRUE); b <- max(x, na.rm = TRUE)
+  if (b - a == 0) return(rep(0.5, length(x)))
+  (x - a) / (b - a)
+}
+df$indice_z_01 <- to_01(df$indice_z)
+
+# -----------------------------
+# PASO 4. Tabla final simple para comparar
+# -----------------------------
+resultado <- data.frame(
+  persona = df$persona,
+  indice_minmax = round(df$indice_minmax, 3), # 0–1
+  indice_z      = round(df$indice_z, 3),      # sin cota (puede ser <0 o >0)
+  indice_z_01   = round(df$indice_z_01, 3)    # Z reescalado a 0–1 (opcional)
+)
+
+resultado
+
+# -----------------------------
+# PASO 5. ¿Cómo se interpreta?
+# -----------------------------
+# - indice_minmax (0–1): 1 está entre los mejores del grupo observado, 0 entre los peores.
+# - indice_z: positivo = por encima del promedio del grupo (en desviaciones estándar);
+#             negativo = por debajo del promedio.
+# - indice_z_01 (0–1): es solo una versión "bonita" del indice_z para informes.
+#   ¿Por qué puede ser mejor que un índice normalizado directo? Porque conserva las ventajas
+#   estadísticas del Z-score (comparabilidad relativa a la media, útil para combinar con
+#   otras variables y análisis multivariados), y al mismo tiempo se reescala a 0–1 para que
+#   sea fácilmente comunicable a audiencias no técnicas. En contraste, la normalización
+#   directa depende únicamente de los valores mínimo y máximo observados y no refleja
+#   cuán lejos está cada caso del promedio del grupo.
+
+
+# ============================================================
+# REGRESIÓN LINEAL CONCEPTOS BÁSICOS
+# ============================================================
+# En este script veremos:
+#   1. Cómo crear datos simulados sobre género y trabajo de cuidados
+#   2. Una regresión lineal simple (1 variable explicativa)
+#   3. Una regresión lineal múltiple (varias variables explicativas)
+#   4. Cómo diagnosticar supuestos básicos
+# ============================================================
+
+
+# -----------------------------
+# PASO 0. Preparar el entorno
+# -----------------------------
+rm(list = ls())        # limpiar la memoria
+set.seed(123)          # semilla para reproducibilidad
+
+
+# -----------------------------
+# PASO 1. Simular datos
+# -----------------------------
+n <- 100  # número de hogares
+
+# Variables independientes
+hijos     <- rpois(n, lambda = 2)           # número de hijos (Poisson media=2)
+servicios <- sample(c(0, 1), n, replace=TRUE) # acceso a servicios de cuidado (0=no, 1=sí)
+empleo    <- sample(c(0, 1), n, replace=TRUE) # mujer con empleo formal (0=no, 1=sí)
+
+# Variable dependiente (minutos de cuidados diarios)
+# Fórmula "real" + error aleatorio
+cuidados <- 150 + 40*hijos - 30*servicios - 25*empleo + rnorm(n, mean=0, sd=20)
+
+# Creamos base de datos
+datos <- data.frame(cuidados, hijos, servicios, empleo)
+head(datos)  # vistazo rápido
+
+
+# ============================================================
+# PARTE 1. REGRESIÓN LINEAL SIMPLE
+# ============================================================
+# ¿Los hijos influyen en el tiempo de cuidados?
+modelo_simple <- lm(cuidados ~ hijos, data = datos)
+
+# Resumen del modelo
+summary(modelo_simple)
+
+# ➡ Interpretación:
+# - Intercepto: minutos de cuidados cuando hijos=0
+# - Coef. hijos: minutos adicionales por cada hijo
+
+# Visualización
+plot(datos$hijos, datos$cuidados,
+     main = "Regresión simple: Hijos y cuidados",
+     xlab = "Número de hijos",
+     ylab = "Minutos de cuidados (mujeres)",
+     pch = 19, col = "darkblue")
+abline(modelo_simple, col = "red", lwd = 2)
+
+
+# ============================================================
+# PARTE 2. REGRESIÓN LINEAL MÚLTIPLE
+# ============================================================
+# Ahora incluimos varias variables explicativas
+modelo_multiple <- lm(cuidados ~ hijos + servicios + empleo, data = datos)
+
+# Resumen del modelo
+summary(modelo_multiple)
+
+# ➡ Interpretación esperada:
+# - Hijos: +40 min por cada hijo
+# - Servicios: -30 min si hay acceso a servicios de cuidado
+# - Empleo formal: -25 min si la mujer trabaja formalmente
