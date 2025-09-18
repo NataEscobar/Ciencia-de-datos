@@ -1,0 +1,214 @@
+# ============================================================
+# REGRESIÓN LINEAL: CONCEPTOS BÁSICOS Y EJEMPLOS
+# ============================================================
+# En este script veremos:
+#   1. Cómo crear datos simulados sobre género y trabajo de cuidados
+#   2. Una regresión lineal simple (1 variable explicativa)
+#   3. Una regresión lineal múltiple (varias variables explicativas)
+#   4. Cómo interpretar los resultados en contexto
+#   5. La conexión con los supuestos de la regresión
+# ============================================================
+
+
+# -----------------------------
+# PASO 0. Preparar el entorno
+# -----------------------------
+rm(list = ls())        # limpiar la memoria de objetos previos
+set.seed(123)          # semilla para reproducibilidad de los resultados aleatorios
+
+
+# -----------------------------
+# PASO 1. Simular datos
+# -----------------------------
+n <- 100  # número de hogares en la "muestra simulada"
+
+# Variables independientes (explicativas):
+hijos     <- rpois(n, lambda = 2)             # número de hijos (distribución Poisson con media=2)
+servicios <- sample(c(0, 1), n, replace=TRUE) # acceso a servicios de cuidado (0 = no, 1 = sí)
+empleo    <- sample(c(0, 1), n, replace=TRUE) # empleo formal de la mujer (0 = no, 1 = sí)
+
+# Variable dependiente (respuesta):
+# Definimos una "verdadera" relación entre X e Y + ruido aleatorio
+# Fórmula: cuidados = 150 + 40*hijos - 30*servicios - 25*empleo + error
+cuidados <- 150 + 40*hijos - 30*servicios - 25*empleo + rnorm(n, mean=0, sd=20)
+
+# Creamos base de datos en formato data.frame
+datos <- data.frame(cuidados, hijos, servicios, empleo)
+head(datos)  # vistazo rápido a las primeras filas
+
+
+# ============================================================
+# PARTE 1. REGRESIÓN LINEAL SIMPLE
+# ============================================================
+# PREGUNTA: ¿El número de hijos influye en el tiempo de cuidados?
+
+# Ajustamos el modelo lineal simple con lm()
+modelo_simple <- lm(cuidados ~ hijos, data = datos)
+
+# Vemos el resumen: coeficientes, errores estándar, R^2, significancia
+summary(modelo_simple)
+
+# ➡ Interpretación de los coeficientes:
+# - Intercepto (β0): tiempo promedio de cuidados cuando hijos = 0.
+# - Pendiente (β1): cuánto aumentan los minutos de cuidados por cada hijo adicional.
+
+# Visualización: nube de puntos y línea de regresión
+plot(datos$hijos, datos$cuidados,
+     main = "Regresión simple: Hijos y cuidados",
+     xlab = "Número de hijos",
+     ylab = "Minutos de cuidados (mujeres)",
+     pch = 19, col = "darkblue")
+abline(modelo_simple, col = "red", lwd = 2)
+
+# Nota teórica: aquí asumimos que la relación entre hijos y cuidados es lineal,
+# y que los errores están distribuidos de manera normal con media 0.
+
+
+# ============================================================
+# PARTE 2. REGRESIÓN LINEAL MÚLTIPLE
+# ============================================================
+# PREGUNTA: ¿Qué otros factores además de los hijos influyen en el tiempo de cuidados?
+
+# Ajustamos el modelo con varias variables independientes
+modelo_multiple <- lm(cuidados ~ hijos + servicios + empleo, data = datos)
+
+# Vemos el resumen completo
+summary(modelo_multiple)
+
+# ➡ Interpretación esperada de los coeficientes:
+# - Hijos: +40 min por cada hijo adicional.
+# - Servicios de cuidado (1=sí): -30 min en promedio si el hogar accede a servicios.
+# - Empleo formal (1=sí): -25 min en promedio si la mujer tiene empleo formal.
+#
+# ➡ Interpretación general:
+# El modelo permite *aislar el efecto* de cada variable, controlando por las demás.
+# Es decir, el coeficiente de cada variable se interpreta "manteniendo las otras constantes".
+
+
+# ============================================================
+# PARTE 3. SUPUESTOS DE LA REGRESIÓN LINEAL
+# ============================================================
+# Supuestos básicos a verificar:
+#   1. Linealidad
+#   2. Normalidad de los residuos
+#   3. Homoscedasticidad (varianza constante de los residuos)
+#   4. Independencia de los residuos
+# ============================================================
+
+# Usaremos el modelo múltiple ajustado previamente
+modelo_multiple <- lm(cuidados ~ hijos + servicios + empleo, data = datos)
+
+# -----------------------------
+# 1. Linealidad
+# -----------------------------
+# Queremos ver si la relación entre Y y cada X es aproximadamente lineal
+# Residuales vs valores ajustados: no debería haber patrones claros
+plot(modelo_multiple$fitted.values, resid(modelo_multiple),
+     xlab = "Valores ajustados", ylab = "Residuos",
+     main = "Linealidad: residuos vs ajustados",
+     pch = 19, col = "darkblue")
+abline(h = 0, col = "red", lwd = 2)
+
+
+install.packages("car")
+library(car)
+crPlots(modelo_multiple)
+
+
+# -----------------------------
+# 2. Normalidad de los residuos
+# -----------------------------
+# Histograma de residuos
+hist(resid(modelo_multiple),
+     main = "Histograma de residuos",
+     xlab = "Residuos", col = "lightblue", border = "white")
+
+# Gráfico Q-Q (normalidad)
+qqnorm(resid(modelo_multiple), pch = 19, col = "darkblue",
+       main = "Normalidad de los residuos (Q-Q plot)")
+qqline(resid(modelo_multiple), col = "red", lwd = 2)
+
+shapiro.test(resid(modelo_multiple))
+
+# -----------------------------
+# 3. Homoscedasticidad
+# -----------------------------
+# Revisamos si la varianza de los residuos es constante
+plot(modelo_multiple$fitted.values, abs(resid(modelo_multiple)),
+     xlab = "Valores ajustados", ylab = "|Residuos|",
+     main = "Homoscedasticidad",
+     pch = 19, col = "darkblue")
+abline(h = mean(abs(resid(modelo_multiple))), col = "red", lwd = 2)
+
+plot(modelo_multiple, which = 3)  # Scale-Location plot
+
+install.packages("lmtest")
+library(lmtest)
+bptest(modelo_multiple)
+
+
+# -----------------------------
+# 4. Independencia de los residuos
+# -----------------------------
+# Para datos de series de tiempo o encuestas ordenadas, graficamos residuos en secuencia
+plot(resid(modelo_multiple), type = "b", pch = 19,
+     main = "Independencia de los residuos",
+     xlab = "Índice de observación", ylab = "Residuos", col = "darkblue")
+abline(h = 0, col = "red", lwd = 2)
+
+install.packages("lmtest")
+library(lmtest)
+dwtest(modelo_multiple)
+
+
+
+# ============================================================
+# VERIFICAR MULTICOLINEALIDAD Y VALORES ATÍPICOS EN REGRESIÓN
+# ============================================================
+
+# -----------------------------
+# MULTICOLINEALIDAD
+# -----------------------------
+# La multicolinealidad ocurre cuando dos o más variables explicativas
+# están muy correlacionadas entre sí → distorsiona los coeficientes.
+
+# Método clásico: Factor de Inflación de la Varianza (VIF)
+# install.packages("car")
+library(car)
+vif(modelo_multiple)
+
+# Reglas prácticas:
+# - VIF ≈ 1 → no hay colinealidad
+# - VIF > 5 → puede ser un problema
+# - VIF > 10 → problema serio de multicolinealidad
+
+# -----------------------------
+# VALORES ATÍPICOS E INFLUYENTES
+# -----------------------------
+# Usamos medidas de influencia para detectar observaciones "problemáticas"
+
+# a) Distancia de Cook: mide cuánto cambia el modelo si quitamos la observación
+cooksd <- cooks.distance(modelo_multiple)
+
+# Visualización rápida
+plot(cooksd, type="h", main="Distancia de Cook",
+     ylab="Influencia", xlab="Índice de observación")
+abline(h = 4/length(cooksd), col="red", lty=2)  # umbral aproximado
+
+# b) Residuos estandarizados: identificar observaciones con residuos grandes
+res_std <- rstandard(modelo_multiple)
+plot(res_std, type="h", main="Residuos estandarizados",
+     ylab="Residuo estandarizado", xlab="Índice de observación")
+abline(h = c(-2,2), col="red", lty=2)
+
+# c) Leverage: observa qué puntos tienen gran influencia por posición en X
+lev <- hatvalues(modelo_multiple)
+plot(lev, type="h", main="Valores de leverage",
+     ylab="Leverage", xlab="Índice de observación")
+abline(h = 2*mean(lev), col="red", lty=2)
+
+# Conclusión:
+# - Si una observación tiene residuos grandes, alto leverage y alta distancia de Cook,
+#   puede ser un valor atípico influyente que distorsiona la regresión.
+
+
