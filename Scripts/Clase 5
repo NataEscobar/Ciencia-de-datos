@@ -1,0 +1,527 @@
+############################################################
+# Linealidad
+# 1) Estimar un modelo ingenuo (lineal)
+# 2) Diagnosticar no linealidad
+# 3) Corregir con dos alternativas (cuadrático y log-Y)
+############################################################
+
+# (Opcional) Instala paquetes si no los tienes:
+# install.packages(c("ggplot2", "dplyr", "broom", "lmtest", "splines"))
+
+library(ggplot2)
+library(dplyr)
+library(broom)
+library(lmtest)   # resettest (prueba de forma funcional)
+library(splines)  # ns() por si quieres probar splines luego
+
+set.seed(123)
+
+############################################################
+# 0) SIMULAMOS DATOS con una relación real NO lineal:
+#    - Efecto de educ es creciente al inicio y luego se aplana
+#    - Esto imita retornos a la educación típicos en economía laboral
+############################################################
+n <- 250
+educ <- sample(0:20, n, replace = TRUE)  # años de educación (0 a 20)
+# Modelo "verdadero" (desconocido para el analista): curvo
+ingreso <- exp(7 + 0.08*educ - 0.002*educ^2 + rnorm(n, mean = 0, sd = 0.3))
+df <- data.frame(educ, ingreso)
+
+############################################################
+# 1) MODELO INGENUO (M1): Ingreso ~ educ
+#    - Supone que cada año de educación suma lo mismo al ingreso (en pesos)
+#    - Es nuestra línea base para "descubrir" problemas de forma funcional
+############################################################
+m1 <- lm(ingreso ~ educ, data = df)
+
+summary(m1)
+
+# Visual 1: Dispersión con recta OLS (roja) vs curva LOESS (azul)
+# Si LOESS se separa de la recta, es señal de no linealidad.
+p1 <- ggplot(df, aes(x = educ, y = ingreso)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 1, color = "red") +
+  geom_smooth(method = "loess", se = FALSE, linewidth = 1, color = "blue") +
+  labs(title = "Educación vs Ingreso: Recta (rojo) vs Curva LOESS (azul)",
+       subtitle = "Si la curva azul se aleja de la recta, hay evidencia de no linealidad",
+       x = "Años de educación", y = "Ingreso (nivel)")
+print(p1)
+
+# Diagnóstico 1: Residuos vs Predicciones
+# Buscamos patrones curvos (U, S). Con buen ajuste lineal no debería haber forma.
+df_diag <- df |>
+  mutate(fit_m1 = fitted(m1),
+         res_m1 = resid(m1))
+
+p2 <- ggplot(df_diag, aes(x = fit_m1, y = res_m1)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = "loess", se = FALSE) +
+  labs(title = "Residuos M1 vs Predicciones",
+       subtitle = "Una forma de U/S sugiere que la relación no es lineal",
+       x = "Predicción de Ingreso (M1)", y = "Residuo (M1)")
+print(p2)
+
+# Diagnóstico 2: Prueba RESET (forma funcional)
+# H0: la forma funcional lineal está bien especificada.
+# Rechazar H0 => evidencia de no linealidad / mala especificación.
+reset_m1 <- resettest(m1, power = 2:3, type = "fitted")
+print(reset_m1)
+
+
+############################################################
+# 2) CORRECCIÓN A: Modelo cuadrático (M2)
+#    Ingreso ~ educ + educ^2
+#    - Permite que el efecto marginal de la educación cambie con el nivel
+#    - Útil cuando los retornos son crecientes y luego decrecientes
+############################################################
+m2 <- lm(ingreso ~ educ + I(educ^2), data = df)
+summary(m2)
+
+# Visual 2: Curva ajustada (verde) del M2 sobre los puntos
+p3 <- ggplot(df, aes(x = educ, y = ingreso)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", formula = y ~ x + I(x^2),
+              se = FALSE, linewidth = 1, color = "darkgreen") +
+  labs(title = "Modelo corregido A: Cuadrático",
+       subtitle = "Permite curvatura: el efecto de educ no es constante",
+       x = "Años de educación", y = "Ingreso (nivel)")
+print(p3)
+
+
+############################################################
+# 3) CORRECCIÓN B: Log-transformación de Y (M3)
+#    log(Ingreso) ~ educ
+#    - Interpretable en términos porcentuales: cada año => X% más de ingreso
+#    - Suele “linearizar” relaciones cóncavas típicas en ciencias sociales
+############################################################
+m3 <- lm(log(ingreso) ~ educ, data = df)
+summary(m3)
+
+# Visual 3: Dispersión de log(Ingreso) vs educ con recta
+p4 <- ggplot(df, aes(x = educ, y = log(ingreso))) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 1, color = "purple") +
+  labs(title = "Modelo corregido B: log(Ingreso) ~ educ",
+       subtitle = "La relación se vuelve más recta en la escala log",
+       x = "Años de educación", y = "log(Ingreso)")
+print(p4)
+
+
+############################################################
+# 4) COMPARACIÓN SIMPLE: AIC 
+############################################################
+
+# Calcular AIC de cada modelo
+AIC(m1)   # modelo lineal ingenuo
+AIC(m2)   # modelo cuadrático
+AIC(m3)   # modelo log(Y)
+
+############################################################
+# Normalidad
+#   A) Transformar Y: log(ingreso) ~ educ
+#   B) Mantener Y en pesos: SE robustos + Bootstrap (lm en niveles)
+#   C) Usar GLM con distribución adecuada: Gamma(link="log")
+############################################################
+
+# (Si te falta alguno, descomenta para instalar)
+# install.packages(c("ggplot2","dplyr","broom","lmtest","sandwich","boot"))
+
+library(ggplot2)   # gráficos
+library(dplyr)     # manipulación
+library(broom)     # tidying (tidy/glance/augment)
+library(lmtest)    # coeftest(), resettest()
+library(sandwich)  # vcovHC (errores robustos)
+library(boot)      # bootstrap
+
+set.seed(123)
+
+############################################################
+# 0) DATOS: simulamos una relación realista y SESGADA (no normal)
+#    - educ: años de educación (0 a 20)
+#    - ingreso: log-normal (cola derecha), depende de educ
+#    - Esto genera residuos NO normales en un lm de ingreso ~ educ
+############################################################
+n <- 300
+educ <- sample(0:20, n, replace = TRUE)
+# ingreso con asimetría: media log depende de educ (retornos %)
+ingreso <- rlnorm(n, meanlog = 7 + 0.08*educ, sdlog = 0.55)
+df <- data.frame(educ, ingreso)
+
+############################################################
+# 1) MODELO INGENUO (lm en niveles) para "descubrir" no normalidad
+############################################################
+m1 <- lm(ingreso ~ educ, data = df)
+
+# Diagnóstico de normalidad en M1
+res_m1 <- resid(m1)
+
+par(mfrow = c(1,2))
+hist(res_m1, breaks = 20, col = "skyblue",
+     main = "M1: Histograma de residuos",
+     xlab = "Residuo")
+qqnorm(res_m1, main = "M1: Q-Q plot de residuos (vs normal)")
+qqline(res_m1, col = "red", lwd = 2)
+par(mfrow = c(1,1))
+
+# Prueba formal (muestras pequeñas: cuidado con poder)
+sw_m1 <- shapiro.test(res_m1)
+print(sw_m1)
+
+
+############################################################
+# 2) CORRECCIÓN A: TRANSFORMAR LA VARIABLE DEPENDIENTE (log Y)
+#    - Ventaja: suele "normalizar" residuos y linealizar relación multiplicativa
+#    - Interpretación: el coeficiente es APROX el % de cambio por año de educación
+############################################################
+m_log <- lm(log(ingreso) ~ educ, data = df)
+
+summary(m_log)
+
+# Diagnóstico de normalidad para M_log
+res_log <- resid(m_log)
+
+par(mfrow = c(1,2))
+hist(res_log, breaks = 20, col = "lightgreen",
+     main = "M_log: Histograma de residuos (log Y)",
+     xlab = "Residuo")
+qqnorm(res_log, main = "M_log: Q-Q plot (vs normal)")
+qqline(res_log, col = "red", lwd = 2)
+par(mfrow = c(1,1))
+
+sw_log <- shapiro.test(res_log)
+print(sw_log)
+
+
+############################################################
+# 3) CORRECCIÓN B: MANTENER Y EN PESOS CON INFERENCIA ROBUSTA
+#    - Si NO quieres cambiar la escala (importa comunicar en pesos)
+#    - Usa errores estándar robustos a no-normalidad (White/HC)
+#    - O usa Bootstrap para intervalos de confianza sin asumir normalidad
+############################################################
+
+
+# Paquetes necesarios
+# install.packages(c("lmtest","sandwich","boot"))
+library(lmtest)     # para coeftest()
+library(sandwich)   # para vcovHC (matriz robusta)
+library(boot)       # para bootstrap
+
+############################################################
+# Opción 1: Errores estándar robustos (White/HC)
+############################################################
+
+# Calculamos la matriz var-cov robusta tipo HC3
+vcov_hc <- vcovHC(m1, type = "HC3")
+
+# Recalculamos los coeficientes con esos errores estándar robustos
+robust_tab <- coeftest(m1, vcov = vcov_hc)
+print(robust_tab)
+
+# - Los coeficientes no cambian (beta sigue siendo el mismo).
+# - Lo que cambia son los errores estándar, t y p-values.
+# - Esto nos protege de la no normalidad y de heterocedasticidad.
+
+
+############################################################
+# Opción 2: Bootstrap del coeficiente de 'educ'
+############################################################
+
+# Definimos función: recibe un remuestreo de filas
+# y devuelve el coeficiente de 'educ'
+boot_slope <- function(data, indices) {
+  d <- data[indices, ]  # muestra bootstrap
+  coef(lm(ingreso ~ educ, data = d))["educ"]
+}
+
+# Ejecutamos bootstrap con 2000 repeticiones
+B <- 2000
+boot_out <- boot(data = df, statistic = boot_slope, R = B)
+
+# Resumen del bootstrap
+print(boot_out)
+
+# Intervalos de confianza bootstrap
+ci_perc <- boot.ci(boot_out, type = "perc")   # método percentil
+ci_bca  <- boot.ci(boot_out, type = "bca")    # método BCa (bias-corrected)
+print(ci_perc)
+print(ci_bca)
+
+# - No hacemos supuestos de normalidad.
+# - Re-muestreamos los datos muchas veces y observamos la distribución
+#   de la pendiente de 'educ'.
+# - A partir de esa distribución, construimos intervalos de confianza.
+# - Estos IC suelen ser más confiables cuando hay residuos no normales.
+
+
+############################################################
+# Heterocedasticidad
+#  A) Simulación de datos con heterocedasticidad (varianza ↑ con X)
+#  B) Modelo ingenuo (OLS en niveles) y diagnóstico
+#  C) Corrección 1: Transformar Y (log)
+#  D) Corrección 2: Errores estándar robustos (White/HC)
+#  E) Corrección 3: WLS (pesos heurísticos) y FGLS (pesos estimados)
+#  F) Comparación de resultados e interpretación
+############################################################
+
+set.seed(123)
+
+############################################################
+# 0) SIMULACIÓN DE DATOS CON HETEROCEDASTICIDAD
+# - educ: años de educación (0 a 20)
+# - ingreso: aumenta con educ, pero su DISPERSIÓN también ↑ con educ
+#   => heterocedasticidad (varianza de errores no constante)
+############################################################
+n <- 400
+educ <- sample(0:20, n, replace = TRUE)
+
+# sd del error crece con educ (abanico): sd = 300 + 80*educ
+# ingreso es suficientemente grande para mantenerse positivo
+epsilon <- rnorm(n, mean = 0, sd = 300 + 80*educ)
+ingreso <- 1000 + 600*educ + epsilon
+
+df <- tibble(educ, ingreso)
+
+############################################################
+# 1) MODELO INGENUO (OLS EN NIVELES) Y DIAGNÓSTICO
+# "Ingenuo" = punto de partida más simple: Y ~ X en niveles
+#   - Si hay heterocedasticidad, los coeficientes pueden ser insesgados,
+#     pero los ERRORES ESTÁNDAR (y p-valores) serán poco confiables.
+############################################################
+m1 <- lm(ingreso ~ educ, data = df)
+
+summary(m1)
+
+# Prueba gráfica: Dispersión Y~X para ver el fenómeno
+ggplot(df, aes(educ, ingreso)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE, color = "red", linewidth = 1) +
+  labs(title = "Dispersión ingreso ~ educación (recta OLS en rojo)",
+       subtitle = "Observa que la dispersión de Y crece con educación (abanico)",
+       x = "Años de educación", y = "Ingreso")
+
+# Prueba gráfica: Residuos vs Predicciones: patrón de ABANICO indica heterocedasticidad
+df_diag <- df |>
+  mutate(fit_m1 = fitted(m1),
+         res_m1 = resid(m1))
+
+ggplot(df_diag, aes(fit_m1, res_m1)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = FALSE) +
+  labs(title = "Residuos vs Predicciones (M1)",
+       subtitle = "Patrón de abanico = varianza crece con el nivel predicho",
+       x = "Predicción de ingreso (M1)", y = "Residuo (M1)")
+
+# Prueba de Breusch-Pagan (H0: homoscedasticidad)
+bp_m1 <- bptest(m1)  # por defecto, usa ~ fitted(m1)
+bp_m1
+
+
+############################################################
+# 2) CORRECCIÓN 1: TRANSFORMAR Y (LOG)
+# - Usamos log(Y) para "comprimir" valores grandes y estabilizar varianza.
+# - Interpretación: el coeficiente de educ ≈ % de cambio en Y por año adicional.
+############################################################
+# Ojo: log requiere Y>0; en nuestro ejemplo Y es positivo.
+m_log <- lm(log(ingreso) ~ educ, data = df)
+
+# Diagnóstico post-transformación: residuos vs predicciones en escala log
+df_diag2 <- df |>
+  mutate(fit_log = fitted(m_log),
+         res_log = resid(m_log))
+
+ggplot(df_diag2, aes(fit_log, res_log)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = FALSE) +
+  labs(title = "Residuos vs Predicciones (log Y)",
+       subtitle = "La varianza suele verse más estable tras el log",
+       x = "Predicción de log(ingreso)", y = "Residuo (log)")
+
+# Breusch-Pagan en el modelo log
+bp_log <- bptest(m_log)
+bp_log
+
+############################################################
+# 3) CORRECCIÓN 2: ERRORES ESTÁNDAR ROBUSTOS (White/HC)
+# - No cambian los coeficientes OLS, PERO corrigen los errores estándar
+#   para hacer inferencia válida con heterocedasticidad.
+# - Útil si queremos conservar la escala original de Y (pesos en pesos).
+############################################################
+# Coeficientes + errores estándar clásicos (no robustos)
+coeftest(m1)
+
+# Coeficientes + errores estándar robustos (HC1)
+coeftest(m1, vcov = vcovHC(m1, type = "HC1"))
+
+# (HC1 es común; HC3 es más conservador en muestras pequeñas)
+coeftest(m1, vcov = vcovHC(m1, type = "HC3"))
+
+
+############################################################
+# Autocorrelación
+# Ejemplo simulado: desempleo (Y) explicado por PIB (X)
+############################################################
+
+set.seed(123)
+n <- 100
+pib <- rnorm(n, 10, 2)
+y <- numeric(n)
+y[1] <- 0
+for (t in 2:n) {
+  y[t] <- 0.6 * y[t-1] + 2 * pib[t] + rnorm(1)
+}
+df <- data.frame(t = 1:n, desemp = y, pib = pib)
+
+
+
+
+############################################################
+# 1) Estimación ingenua OLS
+############################################################
+m1 <- lm(desemp ~ pib, data = df)
+summary(m1)
+
+df$time <- 1:n  # secuencia de tiempo
+
+# Gráfico de residuos en el tiempo
+plot(df$time, resid(m1), type = "l",
+     main = "Residuos en el tiempo (M1)",
+     xlab = "Tiempo", ylab = "Residuos")
+
+
+# Correlograma (ACF) de residuos
+acf(resid(m1), main="ACF de residuos (M1)")
+
+# Prueba Durbin-Watson
+library(lmtest)
+dwtest(m1)
+# Si DW < 2 y p < 0.05 => autocorrelación positiva
+
+############################################################
+# 2) Corrección 1: incluir rezago de Y (modelo dinámico)
+############################################################
+df$desemp_lag <- dplyr::lag(df$desemp, 1)
+m2 <- lm(desemp ~ pib + desemp_lag, data = df)
+summary(m2)
+
+# Revisamos residuos del modelo con rezago
+acf(resid(m2), main="ACF de residuos (M2: con rezago)")
+dwtest(m2)
+
+############################################################
+# 3) Corrección 2: errores estándar robustos (Newey-West)
+############################################################
+library(sandwich)
+
+# Coeficientes de M1 con errores robustos a autocorrelación
+coeftest(m1, vcov = NeweyWest(m1, lag = 1, prewhite = FALSE))
+
+############################################################
+# 4) Comparación rápida
+############################################################
+library(broom)
+
+results <- tibble::tibble(
+  Modelo = c("M1: OLS ingenuo",
+             "M2: con rezago Y",
+             "M1 con errores NW"),
+  Beta_pib = c(coef(m1)["pib"],
+               coef(m2)["pib"],
+               coef(m1)["pib"]),
+  SE_pib = c(coef(summary(m1))["pib","Std. Error"],
+             coef(summary(m2))["pib","Std. Error"],
+             sqrt(diag(NeweyWest(m1, lag = 1)))[2])
+)
+
+print(results)
+
+############################################################
+# Multicolinealidad: detección
+############################################################
+
+set.seed(123)
+n <- 200
+
+# Creamos dos regresores casi idénticos
+educ <- rnorm(n, mean=12, sd=2)
+exp  <- educ*1.1 + rnorm(n, 0, 0.1)   # altísima correlación con educ
+
+# Variable dependiente
+salario <- 1000 + 500*educ + 300*exp + rnorm(n, 0, 1000)
+
+df <- data.frame(salario, educ, exp)
+
+# Modelo con multicolinealidad
+m1 <- lm(salario ~ educ + exp, data = df)
+summary(m1)
+
+# 1. Correlación entre regresores
+cor(df$educ, df$exp)
+
+# 2. VIF
+library(car)
+vif(m1)
+
+
+# ---- 1) Eliminar una variable redundante ----
+m2 <- lm(salario ~ educ, data = df)
+summary(m2)
+
+# ---- 2) Combinar en un índice ----
+df$educ_exp <- (df$educ + df$exp)/2 #promedio entre educ y exp
+m3 <- lm(salario ~ educ_exp, data = df)
+summary(m3)
+
+# ---- 3) Ridge regression ----
+library(glmnet)
+X <- as.matrix(df[,c("educ","exp")])
+y <- df$salario
+ridge <- cv.glmnet(X, y, alpha = 0)   # alpha=0 => Ridge
+coef(ridge, s = "lambda.min")
+
+############################################################
+# Detectar outliers e influyentes en regresión
+############################################################
+set.seed(123)
+n <- 100
+educ <- rnorm(n, 12, 2)
+ingreso <- 1000 + 500*educ + rnorm(n, 0, 1000)
+
+# Introducimos un outlier extremo
+educ[100] <- 25
+ingreso[100] <- 100000
+
+df <- data.frame(educ, ingreso)
+
+# Modelo
+m1 <- lm(ingreso ~ educ, data = df)
+summary(m1)
+
+# 1. Gráfico simple con recta
+plot(df$educ, df$ingreso, pch=19)
+abline(m1, col="red", lwd=2)
+
+# 2. Residuos estandarizados
+rstandard(m1)[100]  # ver el último caso
+
+# 3. Leverage
+lev <- hatvalues(m1)
+plot(lev, main="Leverage de cada observación")
+abline(h = 2*mean(lev), col="red")  # regla práctica
+
+# 4. Distancia de Cook
+cook <- cooks.distance(m1)
+plot(cook, type="h", main="Distancia de Cook")
+abline(h = 4/n, col="red")
+
+# Ver las observaciones problemáticas
+which(cook > 4/n)
+
+#Además de eliminar los datos: Regresión robusta (M-estimadores)
+library(MASS)
+m_rob <- rlm(ingreso ~ educ, data = df)
+summary(m_rob)
+
+
