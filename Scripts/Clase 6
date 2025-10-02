@@ -1,0 +1,147 @@
+############################################################
+# Ejemplos de regresiones y variables categóricas en R
+############################################################
+
+# Paquetes
+set.seed(123)   # Para reproducibilidad
+library(ggplot2)
+
+############################################################
+# 1. MODELO LIN-LIN
+# Relación: Años de educación (X) y salario mensual (Y)
+############################################################
+
+n <- 200
+educ <- rnorm(n, mean = 10, sd = 2)  # años de educación
+salario <- 500 + 200*educ + rnorm(n, 0, 500)  # salario en miles de pesos
+
+m_linlin <- lm(salario ~ educ)
+summary(m_linlin)
+
+# Interpretación:
+# β1 ≈ 192 → cada año adicional de educación aumenta el salario en $192 mil.
+
+# Gráfico
+ggplot(data.frame(educ, salario), aes(x=educ, y=salario)) +
+  geom_point(alpha=0.5) +
+  geom_smooth(method="lm", col="blue") +
+  labs(title="Modelo Lin-Lin: Educación y Salario",
+       x="Años de educación",
+       y="Salario (miles de pesos)")
+
+############################################################
+# 2. MODELO LOG-LIN
+# Relación: Años de educación (X) y log(salario) (Y)
+############################################################
+
+m_loglin <- lm(log(salario) ~ educ)
+summary(m_loglin)
+
+# Interpretación:
+# Si β1 = 0.07 → un año más de educación aumenta el salario en 7%.
+
+# Gráfico
+ggplot(data.frame(educ, logsal=log(salario)), aes(x=educ, y=logsal)) +
+  geom_point(alpha=0.5) +
+  geom_smooth(method="lm", col="red") +
+  labs(title="Modelo Log-Lin: Educación y log(Salario)",
+       x="Años de educación",
+       y="Log(Salario)")
+
+############################################################
+# 3. MODELO LIN-LOG
+# Relación: Log(PIB per cápita) (X) y gasto en salud (Y)
+############################################################
+
+PIB <- rnorm(n, mean = 20000, sd = 5000)   # PIB per cápita
+gasto_salud <- 1000 + 50*log(PIB) + rnorm(n, 0, 200)
+
+m_linlog <- lm(gasto_salud ~ log(PIB))
+summary(m_linlog)
+
+# Interpretación:
+# Si β1 = 83 → un 1% más de PIB per cápita aumenta el gasto en salud en 0.83 unidades.
+
+# Gráfico
+ggplot(data.frame(PIB, gasto_salud), aes(x=log(PIB), y=gasto_salud)) +
+  geom_point(alpha=0.5) +
+  geom_smooth(method="lm", col="darkgreen") +
+  labs(title="Modelo Lin-Log: PIB y Gasto en Salud",
+       x="Log(PIB per cápita)",
+       y="Gasto en salud per cápita")
+
+############################################################
+# 4. MODELO LOG-LOG
+# Relación: Log(consumo) (Y) y log(ingreso) (X)
+############################################################
+
+ingreso <- rnorm(n, mean = 2000, sd = 500)
+consumo <- 500 + 0.8*ingreso + rnorm(n, 0, 200)
+
+m_loglog <- lm(log(consumo) ~ log(ingreso))
+summary(m_loglog)
+
+# Interpretación:
+# Si β1 = 0.68 → la elasticidad del consumo respecto al ingreso es 0.6
+# (un 10% más de ingreso → 6% más de consumo).
+
+# Gráfico
+ggplot(data.frame(ingreso, consumo), aes(x=log(ingreso), y=log(consumo))) +
+  geom_point(alpha=0.5) +
+  geom_smooth(method="lm", col="purple") +
+  labs(title="Modelo Log-Log: Ingreso y Consumo",
+       x="Log(Ingreso)",
+       y="Log(Consumo)")
+
+############################################################
+# 5. VARIABLES CATEGÓRICAS
+############################################################
+
+# Creamos una variable de género (0 = Hombre, 1 = Mujer)
+genero <- sample(c(0,1), n, replace=TRUE)
+
+# Convertir a factor con etiquetas
+genero <- factor(genero,
+                 levels = c(0,1),
+                 labels = c("Hombre","Mujer"))
+
+# Ahora hacemos un modelo con género y educación
+m_genero <- lm(salario ~ educ + genero)
+summary(m_genero)
+
+# Interpretación:
+# - El intercepto = salario promedio de los hombres con 0 años de educación.
+# - Coeficiente de educ = cuánto aumenta el salario por un año más de educación.
+# - Coeficiente de generoMujer = diferencia de salario entre mujeres y hombres,
+#   manteniendo constante la educación.
+
+############################################################
+# 6. VARIABLES CATEGÓRICAS CON MÁS DE DOS NIVELES
+############################################################
+
+# Nivel educativo: Primaria, Secundaria, Universidad
+educ_cat <- sample(c("Primaria","Secundaria","Universidad"),
+                   n, replace=TRUE, prob=c(0.3,0.4,0.3))
+educ_cat <- factor(educ_cat)
+
+# Simulamos salarios distintos por nivel educativo
+salario2 <- ifelse(educ_cat=="Primaria", 1500,
+                   ifelse(educ_cat=="Secundaria", 1900, 2700)) +
+  rnorm(n, 0, 300)
+
+m_educ_cat <- lm(salario2 ~ educ_cat)
+summary(m_educ_cat)
+
+# Interpretación:
+# - R toma "Primaria" como referencia (alfabéticamente es la primera).
+# - Intercepto = salario promedio de Primaria.
+# - Coef de Secundaria = diferencia frente a Primaria.
+# - Coef de Universidad = diferencia frente a Primaria.
+
+# Cambiar la categoría de referencia
+educ_cat <- relevel(educ_cat, ref="Universidad")
+m_educ_cat2 <- lm(salario2 ~ educ_cat)
+summary(m_educ_cat2)
+
+# Ahora "Universidad" es la referencia.
+# Los coeficientes se interpretan como diferencias respecto a Universidad.
