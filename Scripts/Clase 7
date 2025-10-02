@@ -1,0 +1,104 @@
+# ------------------------------
+# Ejemplo: probabilidad de votar
+# ------------------------------
+
+# 1. Creamos un conjunto de datos simulado
+set.seed(123)
+n <- 200
+educacion <- rpois(n, lambda = 10)   # años de estudio (promedio 10)
+edad <- round(runif(n, 18, 70))      # edad entre 18 y 70
+# Modelo real: más educación y más edad = más probabilidad de votar
+p <- 1 / (1 + exp(-( -3 + 0.25*educacion + 0.03*edad )))
+voto <- rbinom(n, size = 1, prob = p)
+
+datos <- data.frame(voto, educacion, edad)
+head(datos)
+
+# 2. Ajustamos un modelo logístico
+modelo <- glm(voto ~ educacion + edad, data = datos, family = binomial)
+
+# Significa Generalized Linear Model (modelo lineal generalizado).
+
+# Es la función de R que sirve para correr modelos lineales más 
+# flexibles que la regresión normal.
+
+# Dentro de glm() decides qué tipo de modelo quieres, dependiendo de la 
+# distribución de la variable dependiente (family).
+
+# 3. Resumen de resultados
+summary(modelo)
+
+# 4. Interpretación de coeficientes en términos de odds ratios
+exp(coef(modelo))
+
+
+# ------------------------------
+# Evaluar el modelo logístico
+# ------------------------------
+
+# 1 Hosmer–Lemeshow Test
+# Necesitas instalar el paquete ResourceSelection
+# install.packages("ResourceSelection")
+library(ResourceSelection)
+hoslem.test(modelo$y, fitted(modelo), g = 10)
+# H0: el modelo ajusta bien a los datos
+# p > 0.05 → buen ajuste; p < 0.05 → mal ajuste
+# En este caso buen ajuste
+
+# 2 Pseudo-R² (McFadden)
+# install.packages("pscl")
+library(pscl)
+pR2(modelo)
+# Muestra varios pseudo-R², el más usado es McFadden
+# Cuanto más alto, mejor (aunque suelen ser bajos: 0.2 ya es muy decente)
+
+# 3 Matriz de confusión
+# install.packages("caret")
+library(caret)
+pred_class <- ifelse(predict(modelo, type = "response") > 0.5, 1, 0)
+cm <-confusionMatrix(factor(pred_class), factor(datos$voto))
+# Te da accuracy, sensibilidad y especificidad
+
+
+# ---------------- INTERPRETACIÓN -----------------
+
+# Accuracy: proporción total de aciertos (predicciones correctas / total de casos).
+# Ejemplo: Accuracy = 0.735 → el modelo acierta en 73.5% de los casos.
+cm$overall["Accuracy"]
+
+# No Information Rate (NIR): proporción de la clase más frecuente en los datos.
+# Ejemplo: NIR = 0.68 → si siempre predijéramos "sí vota" (la mayoría), acertaríamos 68%.
+cm$overall["AccuracyNull"]
+
+# Sensibilidad (Sensitivity): capacidad para detectar la clase positiva definida (aquí "0").
+# Ejemplo: 0.39 → solo 39% de los NO votantes fueron identificados correctamente.
+cm$byClass["Sensitivity"]
+
+# Especificidad (Specificity): capacidad para detectar la clase negativa (aquí "1").
+# Ejemplo: 0.90 → el modelo acertó en 90% de los votantes.
+cm$byClass["Specificity"]
+
+# Kappa: mide el acuerdo entre predicciones y realidad, corrigiendo por azar.
+# Ejemplo: 0.32 → acuerdo moderado.
+cm$overall["Kappa"]
+
+# Balanced Accuracy: promedio de sensibilidad y especificidad.
+# Ejemplo: 0.64 → el modelo balancea bien en general, aunque es mucho mejor prediciendo votantes.
+cm$byClass["Balanced Accuracy"]
+
+# ---------------- RESUMEN SUSTANTIVO ----------------
+# - El modelo tiene buena exactitud global (~74%), apenas mejor que el 68% del azar (NIR).
+# - Es muy bueno prediciendo a los votantes (90%).
+# - Es débil detectando a los no votantes (39%).
+# - En general, útil si interesa identificar votantes, pero menos para identificar abstención.
+
+# 4 Curva ROC y AUC
+# install.packages("pROC")
+library(pROC)
+roc_obj <- roc(datos$voto, fitted(modelo))
+plot(roc_obj, main = "Curva ROC")
+auc(roc_obj)
+# AUC cercano a 1 = modelo muy buen discriminador
+# Significa que, si tomas al azar una persona que votó y una que no votó, 
+# el modelo asignará mayor probabilidad al votante en el 74% de los casos.
+
