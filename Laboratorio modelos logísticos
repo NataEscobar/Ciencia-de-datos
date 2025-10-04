@@ -1,0 +1,145 @@
+---
+title: "Laboratorio de Regresión Logística"
+author: "Nombre del estudiante"
+date: "`r format(Sys.Date())`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+set.seed(123)
+```
+
+## 1. Datos
+
+- Carga el dataset `Default` del paquete **ISLR**.  
+- Revisa la estructura (`str`) y un resumen descriptivo (`summary`).  
+- Recodea la variable dependiente `default` en 0/1.  
+
+**Tarea:** describe brevemente las variables (`default`, `student`, `balance`, `income`).  
+
+```{r datos}
+# Escribe aquí el código para cargar y preparar los datos
+```
+
+---
+
+## 2. Modelo logístico
+
+- Ajusta un modelo logístico: `default ~ balance + income + student`.  
+- Obtén el resumen del modelo.  
+- Calcula los **odds ratios** con `exp(coef(...))`.  
+
+**Tarea:** interpreta los coeficientes y los odds ratios en lenguaje claro.  
+
+```{r modelo}
+# Escribe aquí el código para ajustar el modelo y calcular odds ratios
+```
+
+---
+
+## 3. Probabilidades predichas
+
+- Genera escenarios con diferentes valores de `balance` y `student`, manteniendo `income` fijo en su promedio.  
+- Predice la probabilidad de default en cada escenario.  
+
+**Tarea:** elige algunos escenarios y explica qué significan esas probabilidades en términos prácticos.  
+
+```{r escenarios}
+# Escribe aquí el código para generar escenarios y predecir probabilidades
+```
+
+---
+
+## 4. Evaluación del modelo
+
+### 4.1 Hosmer–Lemeshow y pseudo-R²
+- Haz el test de Hosmer–Lemeshow.  
+- Calcula los pseudo-R² (McFadden, Cox & Snell, Nagelkerke).  
+
+**Tarea:** comenta si el modelo ajusta bien y cómo interpretar el pseudo-R².  
+
+```{r gof}
+# Escribe aquí el código para HL y pseudo-R²
+```
+
+---
+
+### 4.2 Matriz de confusión
+La matriz de confusión permite evaluar qué tan bien el modelo clasifica los casos positivos y negativos comparando las predicciones con los valores reales.
+En un modelo de regresión logística, la probabilidad predicha se convierte en una clase (0 o 1) usando un umbral de decisión (por defecto 0.5).
+
+Pasos:
+
+Usa el modelo para predecir las probabilidades.
+
+Convierte esas probabilidades en clases:
+
+- Si p >= 0.5, predice 1 (evento ocurre).
+
+- Si p < 0.5, predice 0 (evento no ocurre).
+
+Compara las clases predichas con las reales usando `caret::confusionMatrix`.
+
+
+
+```{r confusion}
+#Ejemplo de código
+# Convertir probabilidades a clases (usando umbral 0.5)
+pred_clase <- ifelse(pred_prob >= 0.5, 1, 0)
+
+# Crear matriz de confusión
+library(caret)
+conf <- confusionMatrix(as.factor(pred_clase), as.factor(datos$variable_dependiente), positive = "1")
+conf
+```
+
+Interpretación:
+
+Accuracy (exactitud): proporción total de casos correctamente clasificados.
+
+Sensibilidad (recall o true positive rate): capacidad del modelo para identificar correctamente los casos positivos.
+
+Especificidad (true negative rate): capacidad del modelo para identificar correctamente los casos negativos.
+
+**Tarea:** reporta accuracy, sensibilidad y especificidad. Explica qué clase se predice mejor.  
+
+---
+
+### 4.3 Curva ROC y AUC
+La curva ROC (Receiver Operating Characteristic) muestra el equilibrio entre sensibilidad y especificidad para distintos umbrales de decisión.
+El área bajo la curva (AUC) resume esa relación:
+
+- AUC = 0.5 → el modelo no tiene capacidad predictiva (equivale al azar).
+- AUC = 1 → el modelo clasifica perfectamente.
+- AUC entre 0.7 y 0.8 → desempeño aceptable.
+- AUC entre 0.8 y 0.9 → buen desempeño.
+- AUC > 0.9 → excelente desempeño.
+
+
+
+**Tarea:** interpreta el AUC (0.5 = azar, 1 = perfecto).  
+
+```{r roc}
+#Ejemolo código
+library(pROC)
+
+# Calcular curva ROC
+roc_obj <- roc(datos$variable_dependiente, pred_prob)
+
+# Graficar curva
+plot(roc_obj, col = "blue", main = "Curva ROC")
+
+# Calcular AUC
+auc(roc_obj)
+
+```
+
+---
+
+## 5. Conclusiones
+
+**Tarea:**  
+- Resume los hallazgos principales en 2–3 frases.  
+- Explica qué variable influye más en la probabilidad.
+- Señala una limitación del modelo.  
