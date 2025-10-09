@@ -1,0 +1,110 @@
+####Modelos panel
+
+#  Limpieza y paquetes básicos
+rm(list = ls())
+library(plm)
+library(lmtest)
+library(sandwich)
+library(dplyr)
+
+#  URL del archivo RDA en el repositorio de GitHub
+url <- "https://github.com/arcruz0/politicalds/raw/master/data/us_latam.rda"
+
+#  Descargar el archivo temporalmente y cargarlo
+temp <- tempfile(fileext = ".rda")
+download.file(url, destfile = temp, mode = "wb")
+load(temp)   # esto crea el objeto us_latam directamente
+rm(temp, url)
+
+#  Revisar qué contiene
+ls()         # debe mostrar 'us_latam'
+glimpse(us_latam)
+summary(us_latam)
+
+# estructura de panel ----------
+# En esta base tenemos:
+# - i = país (code)
+# - t = año (year)
+# Por tanto, cada observación es una combinación única de país-año.
+
+# Declarar como pdata.frame
+pdata <- pdata.frame(us_latam, index = c("code", "year"))
+print(pdim(pdata))   # nos dice cuántas unidades (N) y periodos (T) hay
+
+# Explorar visualmente la estructura ----------
+# Revisar cuántos años tiene cada país
+tabla <- pdata %>% group_by(country) %>% summarise(n_periodos = n())
+cat("\nNúmero de años por país:\n")
+print(tabla)
+
+# Panel balanceado si todos los países tienen el mismo número de periodos
+is.pbalanced(pdata)
+
+# Plantear una pregunta de investigación ----------
+  # Ejemplo:
+  # ¿Aumenta el poder político de un país (country_power) cuando mejora la democracia (vote)?
+  # Controlando por inversión extranjera (foreign_investment)
+  
+# Modelo Pooled OLS ----------
+pooled <- lm(country_power ~ vote + foreign_investment, data = pdata)
+cat("\n=== MODELO POOLED OLS (combinado, sin panel) ===\n")
+summary(pooled)
+# Este modelo ignora la estructura del panel, como si todos los datos fueran independientes.
+
+
+# Modelo de Efectos Fijos (FE) ----------
+fe <- plm(country_power ~ vote + foreign_investment, data = pdata, model = "within")
+cat("\n=== MODELO DE EFECTOS FIJOS (FE) ===\n")
+summary(fe)
+# FE elimina las diferencias constantes entre países (historia, geografía, tamaño),
+# y usa solo la variación *dentro* de cada país a lo largo del tiempo.
+
+
+# Modelo de Efectos Aleatorios (RE) ----------
+re <- plm(country_power ~ vote + foreign_investment, data = pdata, model = "random")
+cat("\n=== MODELO DE EFECTOS ALEATORIOS (RE) ===\n")
+summary(re)
+
+# RE asume que las diferencias entre países son aleatorias y no correlacionadas con las X.
+
+# Comparar FE vs RE con la prueba de Hausman ----------
+cat("\n=== TEST DE HAUSMAN (FE vs RE) ===\n")
+phtest(fe, re)
+# Regla:
+#  p < 0.05 → preferir FE (hay correlación entre efectos no observados y X)
+#  p >= 0.05 → se puede usar RE (más eficiente)
+
+# Variación dentro y entre países ----------
+# Analicemos cuánta variación hay en vote (democracia) dentro y entre países:
+cat("\n=== DESCOMPOSICIÓN DE VARIACIÓN ===\n")
+vote_mean_between <- us_latam %>%
+  group_by(code) %>%
+  summarise(mean_vote = mean(vote, na.rm = TRUE))
+
+between_var <- var(vote_mean_between$mean_vote, na.rm = TRUE)
+within_var <- mean(us_latam %>%
+                     group_by(code) %>%
+                     summarise(var_vote = var(vote, na.rm = TRUE)) %>%
+                     pull(var_vote), na.rm = TRUE)
+
+cat("Varianza entre países (between):", round(between_var, 4), "\n")
+cat("Varianza dentro de países (within):", round(within_var, 4), "\n")
+cat("Relación (within / total):", round(within_var / (within_var + between_var), 3), "\n")
+
+# Between variation: diferencias promedio entre países.
+# Within variation: cambios dentro de cada país a lo largo del tiempo.
+
+# Agregar un ejemplo con variable ficticia de política ----------
+# ¿Influye pertenecer al FMI (imf > 0) en el poder político?
+pdata <- pdata %>% mutate(imf_dummy = ifelse(imf > 0, 1, 0))
+
+fe2 <- plm(country_power ~ vote + imf_dummy, data = pdata, model = "within")
+cat("\n=== FE con variable dummy (miembro FMI) ===\n")
+summary(fe2)
+
+# Revisar efectos de la dictadura ----------
+# ¿Qué ocurre con el poder político durante dictaduras?
+fe3 <- plm(country_power ~ vote + dictatorship, data = pdata, model = "within")
+cat("\n=== FE con dictadura ===\n")
+summary(fe3)
+
