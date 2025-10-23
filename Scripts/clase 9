@@ -1,0 +1,672 @@
+
+
+
+# ============================================================
+# Análisis de texto con R a partir de hilos de Reddit (tema: aborto)
+# ============================================================
+
+# ------------------------------------------------------------
+# 0) INSTALAR Y CARGAR PAQUETES
+# ------------------------------------------------------------
+# Idea: si el paquete no está instalado, lo instalamos; luego lo cargamos.
+
+paquetes <- c("RedditExtractoR", "dplyr", "stringr", "lubridate")
+instalar_si_falta <- setdiff(paquetes, rownames(installed.packages()))
+if (length(instalar_si_falta) > 0) {
+  install.packages(instalar_si_falta)
+}
+
+library(RedditExtractoR)  # búsqueda y extracción básica en Reddit
+library(dplyr)            # verbos para manipular data frames
+library(stringr)          # utilidades de texto/regex
+library(lubridate)        # fechas y horas
+
+# Opcional: fija una semilla si luego harás muestreo o análisis reproducible
+set.seed(123)
+
+# ------------------------------------------------------------
+# 1) DEFINIR LA BÚSQUEDA EN REDDIT
+# ------------------------------------------------------------
+# Clave: usar OR para que la búsqueda traiga hilos que contengan
+# al menos uno de los términos. Comillas para frases exactas.
+
+query <- paste(
+  "aborto",
+  "IVE",
+  "misoprostol",
+  "mifepristona",
+  "despenalizacion",
+  "\"Causa Justa\"",
+  "provida",
+  "antiaborto",
+  sep = " OR "
+)
+
+# Parámetros de búsqueda:
+# - subreddit = "colombia" para acotar; usa NA para buscar en todo Reddit.
+# - sort_by  = "new" (recientes), "top" (mejor puntuación) o "relevance".
+# - period   = "day","week","month","year","all" (ventana temporal).
+
+# Buenas prácticas: envolver en tryCatch por si la consulta falla (cambios de API, rate limits, etc.)
+hilos_raw <- tryCatch(
+  {
+    find_thread_urls(
+      keywords  = query,
+      subreddit = "colombia",
+      sort_by   = "new",
+      period    = "all"
+    )
+  },
+  error = function(e) {
+    message("⚠️ Ocurrió un error al consultar Reddit. Detalle: ", e$message)
+    # devolvemos un tibble vacío con las columnas esperadas para no romper el flujo
+    tibble::tibble(
+      url = character(),
+      title = character(),
+      subreddit = character(),
+      date_utc = character(),
+      timestamp = character(),
+      text = character(),
+      comments = numeric()
+    )
+  }
+)
+
+# Revisión rápida del objeto crudo
+# glimpse(hilos_raw)
+
+# ------------------------------------------------------------
+# 2) LIMPIEZA Y ESTRUCTURACIÓN A NIVEL DE HILO (POST)
+# ------------------------------------------------------------
+# Objetivo: quedarnos con una tabla clara con:
+#  - id_post: identificador del post (extraído desde la URL)
+#  - subreddit: comunidad
+#  - fecha: fecha (YYYY-MM-DD)
+#  - titulo: título del hilo
+#  - texto: cuerpo del post (o título si no hay cuerpo)
+#  - url: enlace
+
+# Paso 2.1: asegurar que existan las columnas que vamos a usar (algunas veces faltan)
+cols_necesarias <- c("url", "title", "subreddit", "date_utc", "timestamp", "text")
+faltantes <- setdiff(cols_necesarias, names(hilos_raw))
+if (length(faltantes) > 0) {
+  # crea las columnas faltantes como NA para no romper mutate/transmute
+  for (c in faltantes) hilos_raw[[c]] <- NA
+}
+
+# Paso 2.2: transformar
+base_posts <- hilos_raw %>%
+  mutate(
+    # Extraemos el ID del post usando regex sobre la URL.
+    # Patrón: .../comments/<ID>/...
+    id_post = str_match(url, "/comments/([A-Za-z0-9]+)/")[, 2],
+    
+    # Construimos una fecha robusta:
+    # - Intentamos parsear 'date_utc' como datetime.
+    # - Si falla o viene vacío, probamos 'timestamp'.
+    # - 'coalesce' toma el primer valor no-NA disponible.
+    fecha = dplyr::coalesce(
+      suppressWarnings(lubridate::as_datetime(date_utc, tz = "UTC")),
+      suppressWarnings(lubridate::as_datetime(timestamp, tz = "UTC")),
+      suppressWarnings(lubridate::as_datetime(as.numeric(timestamp), tz = "UTC"))
+    ),
+    
+    # Texto principal: preferimos 'text' (cuerpo del post) y si no hay, usamos el 'title'.
+    texto = dplyr::coalesce(text, title)
+  ) %>%
+  transmute(
+    id_post,
+    subreddit,
+    fecha  = as.Date(fecha),   # nos quedamos con la fecha (sin hora) para análisis por día
+    titulo = title,
+    texto,
+    url
+  ) %>%
+  # Filtramos entradas sin texto útil.
+  filter(!is.na(texto) & texto != "") %>%
+  # Opcional: quitar duplicados por id_post o por url (a veces vienen repetidos)
+  distinct(id_post, .keep_all = TRUE)
+
+# Paso 2.3: si tu flujo necesita evitar rownames visibles en el visor de RStudio
+rownames(base_posts) <- NULL
+
+# ------------------------------------------------------------
+# 3) REVISIÓN RÁPIDA DE LA ESTRUCTURA
+# ------------------------------------------------------------
+# 'glimpse' te muestra tipos de datos y algunas observaciones ejemplo.
+glimpse(base_posts)
+
+
+
+
+
+# ============================================================
+# LIMPIEZA, TOKENIZACIÓN Y TF-IDF (Reddit: tema aborto) — R
+# Flujo: unifica texto → detecta idioma → tokeniza → limpia
+#        → frecuencias → términos distintivos (tf-idf) por mes
+# Requisitos previos: objeto base_posts con columnas:
+#   id_post, subreddit, fecha (Date), titulo, texto, url
+# ============================================================
+
+# ------------------------------------------------------------
+# 0) LIBRERÍAS
+# ------------------------------------------------------------
+# Buenas prácticas: instalar lo que falte y luego cargar.
+
+paquetes <- c("tidyverse", "tidytext", "stopwords", "stringr", "lubridate", "ggplot2")
+instalar <- setdiff(paquetes, rownames(installed.packages()))
+if (length(instalar) > 0) install.packages(instalar)
+
+# cld3 para detección de idioma (ligero y rápido)
+if (!requireNamespace("cld3", quietly = TRUE)) install.packages("cld3")
+
+library(tidyverse)  # dplyr, tibble, readr, tidyr, etc.
+library(tidytext)   # tokenización “tidy”, tf-idf, helpers de visualización
+library(stopwords)  # listas multilingües de stopwords
+library(stringr)    # utilidades de texto/regex
+library(lubridate)  # fechas (floor_date para agrupar por mes)
+library(ggplot2)    # gráficos
+library(cld3)       # detección de idioma
+
+# Comprobación rápida (evita errores silenciosos en clase)
+if (!exists("base_posts")) {
+  stop("No existe 'base_posts'. Ejecuta primero el script de descarga/ensamble de hilos.")
+}
+if (!all(c("titulo", "texto", "fecha") %in% names(base_posts))) {
+  stop("A 'base_posts' le faltan columnas. Debe tener 'titulo', 'texto' y 'fecha'.")
+}
+
+# ------------------------------------------------------------
+# 1) UNIFICAR TEXTO Y LIMPIAR RUIDO SUPERFICIAL
+# ------------------------------------------------------------
+# - Concatenamos título y texto para no perder contexto.
+# - Removemos URLs (patrón http/https/www).
+# - str_squish colapsa espacios múltiples y recorta bordes.
+
+base_limpia <- base_posts %>%
+  mutate(
+    contenido = paste(titulo, texto, sep = " | "),
+    contenido = str_remove_all(contenido, "https?://\\S+|www\\.[^\\s]+"),  # quita URLs
+    contenido = str_squish(contenido)
+  )
+
+# ------------------------------------------------------------
+# 2) DETECCIÓN DE IDIOMA (quedarnos con español)
+# ------------------------------------------------------------
+# - cld3::detect_language devuelve códigos ISO (es, en, pt, etc.).
+# - A veces detect_language devuelve NA en textos muy cortos;
+#   permitimos NA para no perder esos casos.
+
+base_limpia <- base_limpia %>%
+  mutate(lang = cld3::detect_language(contenido)) %>%
+  filter(lang == "es" | is.na(lang))
+
+# ------------------------------------------------------------
+# 3) TOKENIZAR PALABRAS Y FILTRAR TOKENS VÁLIDOS
+# ------------------------------------------------------------
+# - unnest_tokens(token = "words") separa por palabras usando reglas útiles.
+# - Normalizamos a minúsculas (str_to_lower).
+# - Nos quedamos con palabras de solo letras (Unicode) con al menos 3 caracteres.
+#   \p{L} = letra Unicode (funciona para tildes y ñ). El cuantificador {3,} evita ruido.
+
+reddit_tokens <- base_limpia %>%
+  unnest_tokens(palabra, contenido, token = "words") %>%
+  mutate(palabra = str_to_lower(palabra)) %>%
+  filter(str_detect(palabra, "^[\\p{L}]{3,}$"))
+
+# ------------------------------------------------------------
+# 4) QUITAR STOPWORDS Y TÉRMINOS REDUNDANTES
+# ------------------------------------------------------------
+# - Combina stopwords-iso en español con un pequeño “ban list” de términos poco informativos.
+# - unique() para evitar duplicados.
+
+sw_es <- c(
+  stopwords("es", source = "stopwords-iso"),
+  # lista corta de términos “ruidosos” muy frecuentes en redes
+  "colombia","bogota","bogotá","medellin","cali",
+  "rt","https","http","www","com"
+) %>% unique()
+
+reddit_tokens <- reddit_tokens %>%
+  filter(!palabra %in% sw_es)
+
+# (Opcional) Si tus textos incluyen muchas variantes con tildes/mayúsculas,
+# puedes normalizar acentos con stringi::stri_trans_general(palabra, "Latin-ASCII")
+# y trabajar en un campo paralelo (ojo: pierdes tildes intencionales).
+
+# ------------------------------------------------------------
+# 5) FRECUENCIAS SIMPLES (TOP PALABRAS EN ESPAÑOL)
+# ------------------------------------------------------------
+# - Conteo y top 50 para inspección visual.
+
+top_palabras <- reddit_tokens %>%
+  count(palabra, sort = TRUE) %>%
+  slice_max(n, n = 50)
+
+# Visualización rápida (barras horizontales)
+ggplot(top_palabras, aes(x = reorder(palabra, n), y = n)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Palabras más frecuentes en publicaciones sobre aborto (solo español)",
+    x = NULL, y = "Frecuencia"
+  )
+
+# ------------------------------------------------------------
+# 6) TÉRMINOS DISTINTIVOS POR MES (TF-IDF)
+# ------------------------------------------------------------
+# Idea: medir qué términos caracterizan cada mes (documento = mes).
+# Pasos:
+#  - Creamos ym (año-mes) con floor_date(fecha, "month").
+#  - Contamos frecuencia por (ym, palabra).
+#  - bind_tf_idf calcula tf-idf por documento (aquí: ym).
+#  - Nos quedamos con top 10 por mes y graficamos con facet_wrap.
+
+# Salvaguarda: si 'fecha' no es Date, convertir primero
+if (!inherits(reddit_tokens$fecha, "Date")) {
+  reddit_tokens <- reddit_tokens %>% mutate(fecha = as.Date(fecha))
+}
+
+tfidf_mes <- reddit_tokens %>%
+  mutate(ym = floor_date(fecha, "month")) %>%
+  count(ym, palabra, sort = TRUE) %>%
+  filter(n >= 2) %>%  # opcional: elimina términos ultra-raros
+  bind_tf_idf(term = palabra, document = ym, n = n) %>%
+  group_by(ym) %>%
+  slice_max(tf_idf, n = 10, with_ties = FALSE) %>%
+  ungroup()
+
+# Gráfico: barras por mes, ordenadas dentro de cada panel
+ggplot(tfidf_mes, aes(tidytext::reorder_within(palabra, tf_idf, ym), tf_idf)) +
+  geom_col() +
+  coord_flip() +
+  facet_wrap(~ ym, scales = "free_y") +
+  tidytext::scale_x_reordered() +
+  scale_y_continuous(labels = scales::label_number(accuracy = 0.001)) +
+  labs(
+    title = "Términos más distintivos por mes (tf-idf)",
+    x = NULL, y = "tf-idf"
+  )
+
+# ------------------------------------------------------------
+# 7) NOTAS Y CONSEJOS DIDÁCTICOS
+# ------------------------------------------------------------
+# • Si no aparece nada en los gráficos: puede que tu consulta trajo pocos hilos
+#   o que casi todo quedó filtrado por stopwords. Prueba bajar el filtro (n >= 1),
+#   o revisa 'top_palabras' sin quitar stopwords para explorar vocabulario.
+#
+# • Detección de idioma: textos cortos pueden retornar NA; por eso permitimos NA.
+#   Si quieres ser estricto: reemplaza el filtro por filter(lang == "es").
+#
+# • Métricas alternativas: en lugar de tf-idf por mes (documento = ym),
+#   puedes usar documento = subreddit o documento = autor, solo cambiando
+#   'document = ym' por la variable de interés.
+#
+# • Preparación para modelos: desde 'reddit_tokens' puedes construir matrices
+#   documento-termino (DTM) con count(documento, palabra) → cast_*() de tidytext,
+#   y alimentar modelos como STM o Wordfish (requieren un DTM y metadatos).
+
+
+
+
+# ============================================================
+# WORDFISH SENCILLO (con base inventada) · Tema: aborto
+# ============================================================
+# Qué hace este script:
+# 1) Crea 12 documentos cortos (mitad pro-IVE / mitad provida).
+# 2) Prepara un corpus con quanteda, tokeniza y arma una DFM.
+# 3) Ajusta Wordfish (escala 1D no supervisada basada en vocabulario).
+# 4) Muestra posiciones de documentos (θ) y términos discriminantes (β).
+# 5) Grafica las posiciones y, si quieres, los términos con β extremos.
+# ------------------------------------------------------------
+
+# 0) Paquetes -------------------------------------------------
+pkgs <- c("tibble","dplyr","quanteda","quanteda.textmodels",
+          "quanteda.textplots","stopwords","ggplot2")
+to_install <- setdiff(pkgs, rownames(installed.packages()))
+if (length(to_install)) install.packages(to_install, dependencies = TRUE)
+invisible(lapply(pkgs, library, character.only = TRUE))
+
+# Opcional: si tu sesión no está en UTF-8 y ves tildes raras
+# Sys.setlocale("LC_CTYPE", "en_US.UTF-8")  # o el locale UTF-8 de tu SO
+
+set.seed(123)  # reproducible (aunque Wordfish no es aleatorio, la selección/orden puede serlo)
+
+# 1) Base inventada (12 docs, vocabulario variado) ------------
+docs <- tibble::tibble(
+  doc_id = paste0("doc", 1:12),
+  postura = c(rep("pro_IVE", 6), rep("provida", 6)),
+  texto = c(
+    # (pro-IVE / derechos)
+    "Apoyo la IVE porque es un derecho de las mujeres. La decisión debe ser autónoma, sin criminalización.",
+    "La sentencia C-055 amplía derechos reproductivos. El acceso a servicios de salud y misoprostol es clave.",
+    "Causa Justa visibilizó barreras. Es urgente eliminar estigma y garantizar atención digna.",
+    "El aborto seguro reduce riesgos. Políticas públicas deben priorizar educación sexual y anticonceptivos.",
+    "Las mujeres pobres enfrentan más obstáculos. Despenalización y rutas claras salvan vidas.",
+    "La objeción de conciencia institucional no debe negar el servicio. El enfoque es de salud pública.",
+    # (provida / restrictivo)
+    "Defiendo el derecho a la vida desde la concepción. El aborto atenta contra el más vulnerable.",
+    "El Estado debe proteger al no nacido. Alternativas como la adopción deben priorizarse.",
+    "La sociedad necesita acompañamiento y apoyo a la maternidad, no promover el aborto.",
+    "El misoprostol banaliza un tema grave. Las clínicas deben ser estrictamente reguladas.",
+    "La despenalización generalizada abre la puerta a abusos. Se debe limitar por causales estrictas.",
+    "La vida es un valor superior. Objeción de conciencia es un derecho de profesionales y hospitales."
+  )
+)
+
+# 2) Corpus, tokens y DFM (bolsa de palabras) -----------------
+corp <- quanteda::corpus(docs, text_field = "texto")  # docnames = doc_id por defecto
+
+# tokens: minúsculas, sin puntuación/números, quita stopwords ES y ruido web
+toks <- tokens(corp, remove_punct = TRUE, remove_numbers = TRUE) |>
+  tokens_tolower() |>
+  tokens_remove(c(stopwords("es","stopwords-iso"),
+                  "rt","https","http","www","com","amp"))
+
+# Matriz documento-término
+dfm_wf <- dfm(toks)
+
+# Limpieza de la DFM (evita documentos vacíos y deja términos presentes)
+dfm_wf <- dfm_subset(dfm_wf, ntoken(dfm_wf) > 0)
+dfm_wf <- dfm_trim(dfm_wf, min_docfreq = 1, docfreq_type = "count")
+
+# 3) Ajuste Wordfish ------------------------------------------
+# 'dir' fija la dirección de la escala anclando dos documentos.
+# Aquí anclamos doc1 (pro_IVE) y el último doc (provida).
+wf <- textmodel_wordfish(dfm_wf, dir = c(1, ndoc(dfm_wf)))
+
+# Resumen rápido en consola
+print(wf)         # dimensiones y convergencia
+summary(wf)       # incluye extremos y sigma^2
+
+# 4) Resultados (θ y β) ---------------------------------------
+# θ (theta): posición 1D de cada documento
+posiciones <- data.frame(
+  doc   = docnames(dfm_wf),
+  theta = wf$theta
+) |>
+  dplyr::left_join(dplyr::select(docs, doc_id, postura), by = c("doc" = "doc_id")) |>
+  dplyr::arrange(theta)
+
+cat("\n=== Posiciones de documentos (θ) ===\n")
+print(posiciones)
+
+# β (beta): carga/discriminación por término. Valores extremos indican polos.
+betas <- data.frame(term = featnames(dfm_wf), beta = wf$beta)
+
+cat("\n--- Palabras con β más alto (polo derecho) ---\n")
+print(head(betas[order(-betas$beta), ], 12))
+
+cat("\n--- Palabras con β más bajo (polo izquierdo) ---\n")
+print(head(betas[order( betas$beta), ], 12))
+
+# 5) Gráficos -------------------------------------------------
+# a) Mapa 1D integrado (ubica docs sobre la escala)
+quanteda.textplots::textplot_scale1d(wf, margin = "documents")
+
+# b) Barras con ggplot (útil para diapositivas)
+ggplot(posiciones, aes(x = reorder(doc, theta), y = theta, fill = postura)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Posiciones Wordfish (θ) · tema aborto",
+       x = "Documento", y = "Posición (θ)") +
+  theme_minimal() +
+  guides(fill = "none")
+
+# (Opcional) c) Top términos por |β| para etiquetar los polos ----
+library(forcats)
+k <- 10
+top_pos <- betas |> dplyr::arrange(desc(beta)) |> dplyr::slice(1:k) |> dplyr::mutate(polo = "β alto")
+top_neg <- betas |> dplyr::arrange(beta)      |> dplyr::slice(1:k) |> dplyr::mutate(polo = "β bajo")
+top_beta <- dplyr::bind_rows(top_pos, top_neg)
+
+ggplot(top_beta, aes(x = fct_reorder(term, beta), y = beta, fill = polo)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Términos más discriminantes (β extremos)",
+       x = "Término", y = "β (carga)") +
+  theme_minimal()
+
+# ------------------------------------------------------------
+# Cómo leer los resultados (breve para clase):
+# • Wordfish ordena documentos en una dimensión latente (θ) usando diferencias
+#   sistemáticas en el uso de palabras (no necesita etiquetas previas).
+# • ‘dir = c(1, ndoc)’ fija la dirección: la escala se interpreta respecto a
+#   esos dos anclajes. Documentos cercanos a doc1 comparten su vocabulario;
+#   documentos cercanos al último comparten el suyo.
+# • β (beta) por término indica qué palabras “empujan” hacia cada polo.
+#   Las de β alto caracterizan un extremo; las de β bajo el otro.
+# • Con esta base inventada, esperas que “derechos, despenalización,
+#   misoprostol, salud…” agrupen el lado pro-IVE y “vida, concepción,
+#   no nacido, adopción, objeción…” el lado provida.
+# ------------------------------------------------------------
+
+
+
+
+# ============================================================
+# STM SENCILLO (con base inventada) · Tema: aborto
+# ============================================================
+# ¿Qué es STM?
+#  - Un modelo de tópicos como LDA, pero “estructurado”: permite meter
+#    covariables (grupo, fecha, etc.) para modelar la PREVALENCIA de los temas.
+#  - Dos objetos clave en la salida:
+#     * gamma (γ): mezcla de temas por documento (cuánto de cada tema hay en cada doc)
+#     * beta  (β): distribución de palabras por tema (qué palabras caracterizan cada tema)
+#  - Con estimateEffect() puedes ver cómo cambian las prevalencias por covariables.
+# ------------------------------------------------------------
+
+# 0) Paquetes -------------------------------------------------
+pkgs <- c("dplyr","stringr","lubridate","stm","tidyverse","tidytext","stopwords")
+to_install <- setdiff(pkgs, rownames(installed.packages()))
+if (length(to_install)) install.packages(to_install, dependencies = TRUE)
+invisible(lapply(pkgs, library, character.only = TRUE))
+
+set.seed(123)  # reproducibilidad en muestreos/aleatoriedades del init
+
+# 1) Base inventada ------------------------------------------
+#  - 16 documentos cortos, balanceados entre dos “posiciones” (covariable categórica)
+#  - Añadimos fecha para formar una segunda covariable (mes)
+docs <- tibble::tibble(
+  doc_id   = paste0("doc", 1:16),
+  fecha    = as.Date("2025-07-01") + sample(0:60, 16, replace = TRUE),
+  posicion = rep(c("proIVE","provida"), each = 8),
+  texto = c(
+    # proIVE / derechos
+    "Apoyo la IVE como derecho de las mujeres. Es clave eliminar la criminalización.",
+    "La sentencia C-055 reconoce derechos reproductivos y acceso seguro al aborto.",
+    "Causa Justa visibilizó barreras; se requiere atención digna y sin estigma.",
+    "El aborto seguro reduce riesgos; políticas públicas deben incluir educación sexual.",
+    "La despenalización salva vidas, sobre todo de mujeres pobres y rurales.",
+    "El misoprostol y la mifepristona son esenciales para garantizar salud pública.",
+    "Rutas claras y objeción de conciencia regulada mejoran acceso oportuno.",
+    "Acompañamiento psicosocial y anticonceptivos fortalecen la autonomía.",
+    # provida / restrictivo
+    "La vida inicia en la concepción; el Estado debe proteger al no nacido.",
+    "La adopción debe priorizarse; el aborto no es solución a problemas sociales.",
+    "Se banaliza el misoprostol; las clínicas requieren regulación estricta.",
+    "Limitar por causales estrictas evita abusos y cuida el valor de la vida.",
+    "La objeción de conciencia es un derecho de profesionales y hospitales.",
+    "La sociedad debe acompañar la maternidad y ofrecer apoyo material.",
+    "El aborto genera daños morales y psicológicos; hacen falta alternativas.",
+    "La dignidad humana exige políticas pro vida y redes de apoyo."
+  )
+)
+
+# Covariables derivadas (para el componente de prevalencia del STM)
+docs <- docs %>%
+  mutate(
+    mes = factor(format(fecha, "%Y-%m")),  # factor por año-mes
+    posicion = factor(posicion)            # covariable categórica
+  )
+
+# 2) Preprocesamiento STM ------------------------------------
+#  - textProcessor hace limpieza básica + tokenización.
+#  - customstopwords: añadimos stopwords en ES/EN y ruido web.
+#  - IMPORTANTE: 'metadata' aquí recibe el data frame con covariables.
+sw_all <- unique(c(
+  stopwords::stopwords("es","stopwords-iso"),
+  stopwords::stopwords("en","stopwords-iso"),
+  c("rt","https","http","www","com","amp")
+))
+
+out <- textProcessor(
+  documents       = docs$texto,
+  metadata        = docs,
+  lowercase       = TRUE,
+  removestopwords = TRUE,
+  removenumbers   = TRUE,
+  removepunctuation = TRUE,
+  stem            = FALSE,      # sin stemming para interpretación sencilla
+  customstopwords = sw_all
+)
+
+# prepDocuments construye el insumo que STM necesita:
+#  - 'documents': lista de documentos como pares (índice de término, conteo)
+#  - 'vocab': vector de términos del vocabulario
+#  - 'meta': metadata alineada con documentos
+prep <- prepDocuments(
+  out$documents,
+  out$vocab,
+  out$meta,
+  lower.thresh = 1      # mantenemos términos que aparezcan ≥1 vez (corpus pequeño)
+)
+
+docs_stm  <- prep$documents
+vocab_stm <- prep$vocab
+meta_stm  <- prep$meta
+
+cat("Docs:", length(docs_stm), "| Vocab:", length(vocab_stm), "\n")
+
+# 3) Elegir K (búsqueda rápida) ------------------------------
+#  - searchK evalúa varios K (coherencia semántica, exclusividad, held-out, residuals).
+#  - bastan 2–4 valores. Aquí probamos 3, 4, 5.
+#  - NOTA: con textos pequeños, las métricas son más inestables; úsalo como guía.
+set.seed(123)
+K_grid <- c(3, 4, 5)
+sk <- searchK(
+  documents  = docs_stm,
+  vocab      = vocab_stm,
+  data       = meta_stm,
+  K          = K_grid,
+  prevalence = ~ posicion + mes,   # mismas covariables que usaremos en el ajuste
+  init.type  = "Spectral"
+)
+plot(sk)  # inspecciona curvas: busca buen trade-off coherencia/exclusividad
+
+# ------------------------------------------------------------
+# Cómo leer los gráficos de searchK() en STM
+# ------------------------------------------------------------
+
+# Held-Out Likelihood:
+#   Evalúa qué tan bien el modelo predice palabras "nuevas" fuera del entrenamiento.
+#   → Cuanto más ALTO (menos negativo), MEJOR poder predictivo.
+#   → Si baja al aumentar K, el modelo se vuelve más complejo sin mejorar predicción.
+
+# Residuals:
+#   Mide el "ruido" no explicado por el modelo.
+#   → Cuanto más BAJO, mejor (menos error o sobreajuste).
+#   → Si sube con K, el modelo empieza a sobreajustar.
+
+# Semantic Coherence:
+#   Indica qué tan coherentes son las palabras dentro de cada tema.
+#   → Cuanto más ALTO, mejor (temas más interpretables y con sentido semántico).
+#   → Es clave para elegir un K que produzca temas legibles y consistentes.
+
+# Lower Bound:
+#   Es una medida técnica del ajuste del modelo (variational bound).
+#   → Cuanto más ALTO, mejor ajuste general.
+#   → Pero si apenas mejora al aumentar K, no justifica la complejidad adicional.
+
+# Regla práctica:
+#   Elige el K que logre coherencia semántica alta,
+#   residuales bajos y held-out razonablemente alto,
+#   evitando modelos demasiado grandes con mejoras mínimas en el lower bound.
+
+
+
+# 4) Ajustar el STM con K elegido ----------------------------
+#  - Puedes elegir K mirando 'sk' (o fija K=4 para esta demo).
+K <- 4
+set.seed(123)
+mod <- stm(
+  documents  = docs_stm,
+  vocab      = vocab_stm,
+  data       = meta_stm,
+  K          = K,
+  prevalence = ~ posicion + mes,   # modelo de PREVALENCIA (mezcla γ) ~ covariables
+  init.type  = "Spectral"          # inicialización robusta
+)
+# plot.STM(mod, type = "summary")  # barra de prevalencias estimadas por tema
+
+# 5) Explorar/rotular temas ----------------------------------
+#  - labelTopics da palabras representativas bajo distintos criterios:
+#    "prob" (probables), "frex" (exclusividad+frecuencia), "lift", "score".
+#  - FREX suele ser el más interpretables en clase.
+labelTopics(mod, n = 10)
+
+# 6) Efectos de covariables en prevalencia de temas ----------
+#  - estimateEffect ajusta un modelo sobre γ (prevalencia) ~ covariables.
+#  - Puedes comparar grupos (posicion) o ver variación por tiempo (mes).
+ee <- estimateEffect(1:K ~ posicion + mes, mod, meta = meta_stm, uncertainty = "Global")
+
+# Visualización básica: medias por grupo de 'posicion' en cada tema
+#   - method = "pointestimate" muestra estimaciones puntuales
+#   - también puedes usar method = "difference" con 'contrast' para diferencias directas
+op <- par(no.readonly = TRUE); par(mfrow = c(2, 2))
+for (k in 1:K) {
+  plot(
+    ee, "posicion", method = "pointestimate",
+    topics = k, labeltype = "custom", custom.labels = paste("Tema", k),
+    xlab = "Grupo (posicion)", main = paste("Prevalencia por posicion · Tema", k)
+  )
+}
+par(op)
+
+# 7) Palabras representativas y documentos “típicos” ---------
+# Top palabras por tema (usando tidy para extraer β)
+topic_words <- tidytext::tidy(mod, matrix = "beta") %>%
+  group_by(topic) %>%
+  slice_max(beta, n = 8, with_ties = FALSE) %>%
+  ungroup()
+print(topic_words %>% arrange(topic))
+
+
+# 8) Gráfico simple de prevalencias promedio -----------------
+gamma_df <- tidytext::tidy(mod, matrix = "gamma") %>%
+  group_by(topic) %>%
+  summarise(prevalencia_media = mean(gamma), .groups = "drop")
+
+ggplot(gamma_df, aes(x = factor(topic), y = prevalencia_media)) +
+  geom_col() +
+  labs(title = "Prevalencia promedio por tema (STM)",
+       x = "Tema", y = "Prevalencia promedio") +
+  theme_minimal()
+
+# ------------------------------------------------------------
+# GUÍA DE LECTURA 
+# ------------------------------------------------------------
+# • ¿Qué “aprende” el STM?
+#   - Un conjunto de temas (paquetes de palabras) y, para cada documento, una mezcla γ.
+# • ¿Dónde entran las covariables?
+#   - En 'prevalence = ~ ...': influyen en γ (qué tanto aparece cada tema en cada doc).
+# • ¿Cómo elijo K?
+#   - searchK() da métricas (coherencia, exclusividad, held-out). Busca un K que no
+#     sacrifique demasiada exclusividad por coherencia. En corpus mini, K=3 o K=4 suele
+#     ser suficiente para mostrar la idea sin sobreajustar.
+# • ¿Cómo rotulo los temas?
+#   - Mira labelTopics(mod, n=10), especialmente FREX. Verifica leyendo los top-docs
+#     (γ altos) del tema: ¿de qué hablan? Pon un nombre corto y sustantivo.
+# • ¿Cómo pruebo diferencias entre grupos/tiempo?
+#   - estimateEffect(): por ejemplo, ¿Tema 1 es más prevalente en “proIVE” que en “provida”?
+#     Usa plot(ee, "posicion", ... topics=1) o differences con method="difference".
+# • ¿Qué NO hace STM?
+#   - No clasifica “a favor/en contra” por sí mismo; descubre patrones de coocurrencia.
+#     La interpretación sustantiva la haces tú con palabras (β) y documentos (γ).
+#
+# CONSEJOS PRÁCTICOS:
+# - Si tienes más texto, sube 'lower.thresh' en prepDocuments para quitar términos raros.
+# - Si te salen temas muy parecidos, prueba otro K o usa init.type="Spectral" (ya está),
+#   o añade/ajusta covariables (p. ej., autor, subreddit).
+# - Para presentaciones, combina: (i) barras de prevalencia, (ii) tabla de top palabras,
+#   (iii) 2–3 documentos ejemplares por tema.
