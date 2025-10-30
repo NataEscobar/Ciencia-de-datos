@@ -1,0 +1,156 @@
+# ------------------------------
+# SIMULACIÓN: Encuesta de Uso del Tiempo (R)
+# ------------------------------
+set.seed(123)
+
+n <- 1000
+
+# 1) Variables demográficas y de contexto
+id           <- sprintf("P%04d", 1:n)
+sexo         <- sample(c("Mujer","Hombre"), n, replace = TRUE, prob = c(0.53, 0.47))
+edad         <- sample(15:80, n, replace = TRUE, prob = dnorm(15:80, mean = 35, sd = 14))
+region       <- sample(c("Caribe","Pacífica","Andina","Orinoquía/Amazonía","Bogotá"),
+                       n, replace = TRUE, prob = c(0.15,0.15,0.45,0.10,0.15))
+area         <- sample(c("Urbana","Rural"), n, replace = TRUE, prob = c(0.78,0.22))
+dia_semana   <- sample(c("Lun","Mar","Mié","Jue","Vie","Sáb","Dom"), n, TRUE,
+                       prob = c(0.16,0.16,0.16,0.16,0.16,0.10,0.10))
+fin_semana   <- dia_semana %in% c("Sáb","Dom")
+
+# Estado laboral/estudio (simplificado)
+estado_base  <- sample(c("Ocupado/a","Desocupado/a","Inactivo/a","Estudiante"),
+                       n, TRUE, prob = c(0.52,0.07,0.26,0.15))
+
+# Pequeños ajustes por edad (más prob de ser Estudiante si joven)
+estado_ocup <- ifelse(edad <= 22 & runif(n) < 0.50, "Estudiante", estado_base)
+
+# Composición del hogar (indicadores)
+hogar_ninos_u5  <- rbinom(n, 1, prob = plogis(-1.2 + 0.03*(30 - pmin(edad, 30))))  # más en edades ~25-35
+hogar_mayores75 <- rbinom(n, 1, prob = plogis(-3 + 0.05*pmax(edad - 40, 0)))       # crece con edad
+tamano_hogar    <- pmax(1, round(rnorm(n, mean = 3.6 + 0.5*hogar_ninos_u5, sd = 1.2)))
+
+# 2) Minutaje base (proporciones que suman 1)
+#    Sueño, Autocuidado, Trabajo Rem., Doméstico no rem., Cuidado, Estudio, Ocio, Transporte, Otros
+cat_names <- c("sueno","autocuidado","trabajo_rem","domestico","cuidado","estudio","ocio","transporte","otros")
+
+base_shares <- c(
+  sueno        = 0.34,
+  autocuidado  = 0.07,
+  trabajo_rem  = 0.22,
+  domestico    = 0.12,
+  cuidado      = 0.05,
+  estudio      = 0.05,
+  ocio         = 0.12,
+  transporte   = 0.03,
+  otros        = 0.00
+)
+
+# 3) Función para dibujar shares "tipo Dirichlet" usando gammas (sin paquetes)
+rshares <- function(mu, kappa = 80) {
+  # mu: vector de medias (que suman 1); kappa: concentración (más alto, menos variabilidad)
+  shape <- pmax(1e-6, mu * kappa)
+  draw  <- rgamma(length(mu), shape = shape, rate = kappa) # mean ~ mu
+  draw  / sum(draw)
+}
+
+# 4) Construcción de multiplicadores por individuo (ajustan shares por características)
+mult_mat <- matrix(1, nrow = n, ncol = length(base_shares))
+colnames(mult_mat) <- names(base_shares)
+
+# Efectos por sexo
+mult_mat[sexo == "Mujer", c("domestico","cuidado")] <- mult_mat[sexo == "Mujer", c("domestico","cuidado")] * 1.25
+mult_mat[sexo == "Mujer", "trabajo_rem"]           <- mult_mat[sexo == "Mujer", "trabajo_rem"] * 0.92
+
+# Efectos por niños pequeños en el hogar
+mult_mat[hogar_ninos_u5 == 1, "cuidado"]     <- mult_mat[hogar_ninos_u5 == 1, "cuidado"] * 1.6
+mult_mat[hogar_ninos_u5 == 1, "domestico"]   <- mult_mat[hogar_ninos_u5 == 1, "domestico"] * 1.15
+mult_mat[hogar_ninos_u5 == 1, "transporte"]  <- mult_mat[hogar_ninos_u5 == 1, "transporte"] * 1.15
+mult_mat[hogar_ninos_u5 == 1, "ocio"]        <- mult_mat[hogar_ninos_u5 == 1, "ocio"] * 0.95
+
+# Efectos por mayores en el hogar
+mult_mat[hogar_mayores75 == 1, "cuidado"] <- mult_mat[hogar_mayores75 == 1, "cuidado"] * 1.25
+
+# Efectos por estado laboral/estudio
+mult_mat[estado_ocup == "Ocupado/a", "trabajo_rem"] <- mult_mat[estado_ocup == "Ocupado/a", "trabajo_rem"] * 1.45
+mult_mat[estado_ocup == "Desocupado/a", "trabajo_rem"] <- mult_mat[estado_ocup == "Desocupado/a", "trabajo_rem"] * 0.25
+mult_mat[estado_ocup == "Inactivo/a", "trabajo_rem"]   <- mult_mat[estado_ocup == "Inactivo/a", "trabajo_rem"] * 0.15
+
+mult_mat[estado_ocup == "Estudiante", "estudio"] <- mult_mat[estado_ocup == "Estudiante", "estudio"] * 1.7
+mult_mat[estado_ocup == "Estudiante", "trabajo_rem"] <- mult_mat[estado_ocup == "Estudiante", "trabajo_rem"] * 0.6
+
+# Efectos por día (fin de semana)
+mult_mat[fin_semana, "trabajo_rem"] <- mult_mat[fin_semana, "trabajo_rem"] * 0.4
+mult_mat[fin_semana, "ocio"]        <- mult_mat[fin_semana, "ocio"] * 1.4
+mult_mat[fin_semana, "domestico"]   <- mult_mat[fin_semana, "domestico"] * 1.1
+
+# Efectos por edad (jóvenes más estudio; adultos más trabajo/rem; mayores más ocio/autocuidado)
+mult_mat[edad <= 22, "estudio"]     <- mult_mat[edad <= 22, "estudio"] * 1.5
+mult_mat[edad >= 55, "ocio"]        <- mult_mat[edad >= 55, "ocio"] * 1.2
+mult_mat[edad >= 60, "autocuidado"] <- mult_mat[edad >= 60, "autocuidado"] * 1.15
+
+# 5) Generación de minutos diarios que sumen 1.440
+minutos_total <- 1440L
+
+# contenedores
+mins <- matrix(NA_real_, nrow = n, ncol = length(base_shares))
+colnames(mins) <- names(base_shares)
+
+for (i in 1:n) {
+  # shares aleatorios alrededor de la media base
+  s <- rshares(base_shares, kappa = 90)
+  # aplicar multiplicadores individuales y re-escalar
+  s_adj <- s * mult_mat[i, ]
+  s_adj <- pmax(1e-6, s_adj / sum(s_adj))
+  # convertir a minutos
+  m <- round(s_adj * minutos_total)
+
+  # corregir pequeñas diferencias por redondeo para que sumen exactamente 1440
+  diff <- minutos_total - sum(m)
+  if (diff != 0) {
+    # ajustamos en 'ocio' (o en 'otros' si prefieres)
+    target <- if ("ocio" %in% names(m)) "ocio" else names(m)[1]
+    m[target] <- m[target] + diff
+  }
+  mins[i, ] <- m
+}
+
+# 6) Asegurar mínimos razonables (p.ej. sueño no < 240 min) y re-balancear
+min_floor <- c(sueno=240, autocuidado=30, trabajo_rem=0, domestico=0, cuidado=0,
+               estudio=0, ocio=0, transporte=0, otros=0)
+
+for (i in 1:n) {
+  # elevar a pisos mínimos donde aplique
+  below <- names(min_floor)[mins[i, names(min_floor)] < min_floor]
+  if (length(below) > 0) {
+    add <- sum(min_floor[below] - mins[i, below])
+    mins[i, below] <- min_floor[below]
+    # quitar de ocio primero, si no alcanza quitar proporcionalmente del resto
+    resto <- setdiff(names(mins[i, ]), below)
+    if ("ocio" %in% resto && mins[i, "ocio"] > add) {
+      mins[i, "ocio"] <- mins[i, "ocio"] - add
+    } else {
+      # quitar proporcional al resto (evitar negativos)
+      pool <- pmax(1, mins[i, resto])
+      frac <- pool / sum(pool)
+      mins[i, resto] <- pmax(0, mins[i, resto] - round(frac * add))
+    }
+    # corrección final por redondeo
+    diff2 <- minutos_total - sum(mins[i, ])
+    if (diff2 != 0) mins[i, "ocio"] <- pmax(0, mins[i, "ocio"] + diff2)
+  }
+}
+
+# 7) Armar data.frame final
+df <- data.frame(
+  id, sexo, edad, region, area, dia_semana, fin_semana = as.integer(fin_semana),
+  estado_ocup, tamano_hogar,
+  ninos_u5 = hogar_ninos_u5, mayores75 = hogar_mayores75,
+  minutes_sueno       = mins[, "sueno"],
+  minutes_autocuidado = mins[, "autocuidado"],
+  minutes_trabajo_rem = mins[, "trabajo_rem"],
+  minutes_domestico   = mins[, "domestico"],
+  minutes_cuidado     = mins[, "cuidado"],
+  minutes_estudio     = mins[, "estudio"],
+  minutes_ocio        = mins[, "ocio"],
+  minutes_transporte  = mins[, "transporte"],
+  minutes_otros       = mins[, "otros"]
+)
